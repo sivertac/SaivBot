@@ -1,6 +1,6 @@
 //LogDownloader.cpp
 
-#include "LogDownloader.hpp"
+#include "../include/LogDownloader.hpp"
 
 Log::Log(std::string && source, std::string && data) :
 	m_source(std::move(source)),

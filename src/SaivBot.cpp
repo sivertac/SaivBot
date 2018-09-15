@@ -1,7 +1,7 @@
 //SaivBot.cpp
 //Author: Sivert Andresen Cubedo
 
-#include "SaivBot.hpp"
+#include "../include/SaivBot.hpp"
 
 SaivBot::SaivBot(boost::asio::io_context & ioc) :
 	m_ioc(ioc),

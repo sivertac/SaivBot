@@ -12,8 +12,7 @@
 #include <boost\asio.hpp>
 
 //Local
-#include "SaivBot.hpp"
-#include "LogDownloader.hpp"
+#include "../include/SaivBot.hpp"
 
 int main(int argc, char** argv)
 {
