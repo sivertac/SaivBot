@@ -217,6 +217,14 @@ public:
 	}
 
 	/*
+	*/
+	ResultSet parse(std::vector<std::string_view>::const_iterator begin, std::vector<std::string_view>::const_iterator end) const
+	{
+		std::vector<std::string> vec{ begin, end };
+		return parse(vec);
+	}
+
+	/*
 	Get optons.
 	*/
 	const OptionContainer & getOptions() const

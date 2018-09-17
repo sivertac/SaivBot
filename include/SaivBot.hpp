@@ -22,8 +22,6 @@
 #include <filesystem>
 #include <unordered_set>
 
-#define _WIN32_WINNT 0x0A00
-
 //boost
 #include <boost\asio.hpp>
 
@@ -81,7 +79,7 @@ Command container.
 */
 struct CommandContainer
 {
-	using IteratorType = std::vector<std::string>::const_iterator;
+	using IteratorType = std::vector<std::string_view>::const_iterator;
 
 	using FuncType = std::function<
 		void(const IRCMessage&,
@@ -112,8 +110,20 @@ class SaivBot
 public:
 	/*
 	*/
-	SaivBot(boost::asio::io_context & ioc);
-
+	SaivBot(
+		boost::asio::io_context & ioc,
+		const std::filesystem::path & config_path 
+	);
+	
+	/*
+	Post to ioc.
+	*/
+	void run();
+	
+	/*
+	*/
+	~SaivBot();
+private:
 
 	/*
 	Load config.
@@ -124,12 +134,7 @@ public:
 	Save config.
 	*/
 	void saveConfig(const std::filesystem::path & path);
-	
-	/*
-	Post to ioc.
-	*/
-	void run();
-private:
+
 	/*
 	*/
 	void resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results);
@@ -192,15 +197,11 @@ private:
 	*/
 	bool isWhitelisted(const std::string_view & user);
 
-	/*
-	Caseless compare.
-	*/
-	static bool caselessCompare(const std::string_view & str1, const std::string_view & str2);
-
 	/////
 	bool m_running = false;
 
 	boost::asio::io_context & m_ioc;
+	std::filesystem::path m_config_path;
 	boost::asio::ip::tcp::resolver m_resolver;
 	boost::asio::ip::tcp::socket m_sock;
 
@@ -208,7 +209,7 @@ private:
 	std::string m_last_message_queued;
 	std::chrono::system_clock::time_point m_next_message_time;
 
-	static const std::size_t m_buffer_size = 4000;
+	static const std::size_t m_buffer_size = 10000;
 	std::array<char, m_buffer_size> m_recv_buffer;
 
 	std::string m_buffer;
@@ -269,7 +270,7 @@ private:
 	Count command callback.
 	*/
 	void countCommandCallback(
-		LogDownloader::LogContainer && logs,
+		Log && log,
 		std::shared_ptr<std::string> search_ptr,
 		std::shared_ptr<std::string> channel_ptr,
 		std::shared_ptr<std::string> nick_ptr
@@ -288,7 +289,7 @@ Return:
 	false false if not
 */
 template <class C1, class C2>
-bool prefixCompare(C1 & a, C2 & b)
+bool prefixCompare(const C1 & a, const C2 & b)
 {
 	auto a_it = a.begin();
 	auto b_it = b.begin();
@@ -298,6 +299,26 @@ bool prefixCompare(C1 & a, C2 & b)
 		}
 		std::advance(a_it, 1);
 		std::advance(b_it, 1);
+	}
+	return true;
+}
+
+/*
+
+*/
+template <class C1, class C2>
+bool isInPrefixCaseless(const C1 & str, const C2 & sub)
+{
+	auto a_it = str.begin();
+	auto b_it = sub.begin();
+	while (a_it != str.end() && b_it != sub.end()) {
+		if (std::tolower(*a_it) != std::tolower(*b_it)) {
+			return false;
+		}
+		std::advance(a_it, 1);
+		std::advance(b_it, 1);
+		if (a_it == str.end() && b_it != sub.end()) return false;
+		else if (b_it == sub.end()) return true;
 	}
 	return true;
 }
@@ -321,6 +342,12 @@ std::size_t countTargetOccurrences(const std::string_view & str, const std::stri
 /*
 Split string by spaces.
 */
-std::vector<std::string> splitString(const std::string & str);
+std::vector<std::string_view> extractWords(std::string_view str_view, const std::string_view & delim);
+
+/*
+Caseless compare.
+*/
+bool caselessCompare(const std::string_view & str1, const std::string_view & str2);
+
 
 #endif // !SaivBot_HEADER

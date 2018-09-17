@@ -3,11 +3,13 @@
 
 #include "../include/SaivBot.hpp"
 
-SaivBot::SaivBot(boost::asio::io_context & ioc) :
+SaivBot::SaivBot(boost::asio::io_context & ioc, const std::filesystem::path & config_path) :
 	m_ioc(ioc),
 	m_resolver(ioc),
-	m_sock(ioc)
+	m_sock(ioc),
+	m_config_path(config_path)
 {
+	loadConfig(m_config_path);
 }
 
 void SaivBot::loadConfig(const std::filesystem::path & path)
@@ -54,9 +56,13 @@ void SaivBot::run()
 	);
 }
 
+SaivBot::~SaivBot()
+{
+	saveConfig(m_config_path);
+}
+
 void SaivBot::resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results)
 {
-
 	boost::asio::async_connect(
 		m_sock,
 		results.begin(),
@@ -103,6 +109,7 @@ void SaivBot::receiveHandler(boost::system::error_code ec, std::size_t ret)
 	consumeMsgBuffer();
 
 	if (!m_running) return;
+	if (!m_sock.is_open()) throw std::runtime_error("Unexpected closed socket");
 
 	m_sock.async_read_some(
 		boost::asio::buffer(m_recv_buffer),
@@ -137,7 +144,7 @@ void SaivBot::sendIRC(const std::string & msg)
 		auto now = std::chrono::system_clock::now();
 
 		if (m_next_message_time < now) {
-			m_next_message_time = now + std::chrono::milliseconds(1500);
+			m_next_message_time = now + std::chrono::milliseconds(1750);
 			boost::asio::async_write(
 				m_sock,
 				boost::asio::buffer(*msg_ptr),
@@ -154,7 +161,7 @@ void SaivBot::sendIRC(const std::string & msg)
 			auto timer_ptr = std::make_shared<boost::asio::system_timer>(m_ioc);
 			timer_ptr->expires_at(m_next_message_time);
 
-			m_next_message_time += std::chrono::milliseconds(1500);
+			m_next_message_time += std::chrono::milliseconds(1750);
 
 			timer_ptr->async_wait(
 				std::bind(
@@ -215,7 +222,19 @@ void SaivBot::consumeMsgBuffer()
 			}
 		}
 		else {
-			auto body_vec = splitString(std::string(msg.getBody()));
+			//xD
+			if (isInPrefixCaseless(msg.getBody(), std::string_view("!xd"))) {
+				sendPRIVMSG(msg.getParams()[0], "xD");
+			}
+			else if (isInPrefixCaseless(msg.getBody(), std::string_view("!NaM"))) {
+				sendPRIVMSG(msg.getParams()[0], "NaM");
+			}
+			else if (msg.getBody().find("A multi-raffle has begun") != msg.getBody().npos) {
+				sendPRIVMSG(msg.getParams()[0], "!join");
+			}
+			
+			//commands
+			auto body_vec = extractWords(msg.getBody(), " \t,");
 			if (body_vec.size() >= 2 && caselessCompare(body_vec[0], m_nick)) {
 				auto command_it = std::find_if(
 					m_command_containers.begin(),
@@ -234,9 +253,6 @@ void SaivBot::consumeMsgBuffer()
 
 void SaivBot::sendPRIVMSG(const std::string_view & channel, const std::string_view & msg)
 {
-	//std::stringstream ss;
-	//ss << "PRIVMSG " << channel << " :" << msg;
-	//sendIRC(ss.str());
 	sendIRC(std::string("PRIVMSG ").append(channel).append(" :").append(msg));
 }
 
@@ -264,46 +280,22 @@ bool SaivBot::isWhitelisted(const std::string_view & user)
 	return m_whitelist.find(str) != m_whitelist.end();
 }
 
-void SaivBot::countCommandCallback(LogDownloader::LogContainer && logs, std::shared_ptr<std::string> search_ptr, std::shared_ptr<std::string> channel_ptr, std::shared_ptr<std::string> nick_ptr)
+void SaivBot::countCommandCallback(Log && log, std::shared_ptr<std::string> search_ptr, std::shared_ptr<std::string> channel_ptr, std::shared_ptr<std::string> nick_ptr)
 {
 	std::stringstream reply;
-	//if (in_log.getData() == "{\"message\":\"Not Found\"}") {
-	//	reply << *nick_ptr << ", Log not found NaM";
-	//	sendPRIVMSG(*channel_ptr, reply.str());
-	//}
-	//else {
 	std::size_t count = 0;
 	auto searcher = std::boyer_moore_searcher(search_ptr->begin(), search_ptr->end());
-	for (auto & log : logs) {
-		std::cout << log.getSource() << "\n";
-		if (log.getData() == "{\"message\":\"Not Found\"}") continue;
-		for (auto row : log.getLines()) {
-			count += countTargetOccurrences(std::get<2>(row).begin(), std::get<2>(row).end(), searcher);
-		}
+	if (log.getData() == "{\"message\":\"Not Found\"}") {
+		reply << *nick_ptr << ", no logs found NaM";	
 	}
-	//reply << *nick_ptr << ", count: " << count << " source: " << in_log.getSource();
-	reply << *nick_ptr << ", count: " << count;
+	else {
+		for (std::size_t i = 0; i < log.getNumberOfLines(); ++i) {
+			auto & msg = log.getLines()[i];
+			count += countTargetOccurrences(msg.begin(), msg.end(), searcher);
+		}
+		reply << *nick_ptr << ", count: " << count;
+	}
 	sendPRIVMSG(*channel_ptr, reply.str());
-	//}
-}
-
-std::size_t countTargetOccurrences(const std::string_view & str, const std::string_view & target)
-{
-	auto search = std::boyer_moore_searcher(target.begin(), target.end());
-	return countTargetOccurrences(str.begin(), str.end(), search);
-}
-
-bool SaivBot::caselessCompare(const std::string_view & str1, const std::string_view & str2)
-{
-	if (str1.size() != str2.size()) {
-		return false;
-	}
-	for (std::size_t i = 0; i < str1.size(); ++i) {
-		if (std::tolower(str1[i]) != std::tolower(str2[i])) {
-			return false;
-		}
-	}
-	return true;
 }
 
 void SaivBot::shutdownCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end)
@@ -322,7 +314,7 @@ void SaivBot::helpCommandFunc(const IRCMessage & msg, CommandContainer::Iterator
 			auto it = std::find_if(m_command_containers.begin(), m_command_containers.end(), [&](auto & con) {return caselessCompare(con.m_command, r->get()[0]); });
 			if (it != m_command_containers.end()) {
 				std::stringstream reply;
-				reply << msg.getUser() << ", " << it->m_description << " Usage: " << it->m_command << " " << it->m_arguments;
+				reply << msg.getNick() << ", " << it->m_description << " Usage: " << it->m_command << " " << it->m_arguments;
 				sendPRIVMSG(msg.getParams()[0], reply.str());
 			}
 		}
@@ -332,7 +324,13 @@ void SaivBot::helpCommandFunc(const IRCMessage & msg, CommandContainer::Iterator
 void SaivBot::countCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end)
 {
 	if (isWhitelisted(msg.getNick())) {
-		OptionParser parser(Option(m_command_containers[Commands::count_command].m_command, 1), Option("-channel", 1), Option("-user", 1), Option("-year", 1), Option("-month", 1));
+		OptionParser parser(
+			Option(m_command_containers[Commands::count_command].m_command, 1), 
+			Option("-channel", 1), 
+			Option("-user", 1), 
+			Option("-year", 1), 
+			Option("-month", 1)
+		);
 
 		auto set = parser.parse(begin, end);
 
@@ -384,7 +382,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, CommandContainer::Iterato
 			),
 			host,
 			port,
-			std::move( std::vector<std::string>({ target } ))
+			target
 		);
 	}
 }
@@ -400,6 +398,7 @@ void SaivBot::promoteCommandFunc(const IRCMessage & msg, CommandContainer::Itera
 			if (m_whitelist.find(user) == m_whitelist.end()) {
 				m_whitelist.emplace(user);
 				sendPRIVMSG(msg.getParams()[0], user + " promoted");
+				saveConfig(m_config_path);
 			}
 		}
 	}
@@ -417,6 +416,7 @@ void SaivBot::demoteCommandFunc(const IRCMessage & msg, CommandContainer::Iterat
 			if (it != m_whitelist.end()) {
 				m_whitelist.erase(it);
 				sendPRIVMSG(msg.getParams()[0], user + " demoted");
+				saveConfig(m_config_path);
 			}
 		}
 	}
@@ -561,8 +561,45 @@ const std::string_view & IRCMessage::getBody() const
 	return m_body_view;
 }
 
-std::vector<std::string> splitString(const std::string & str)
+std::size_t countTargetOccurrences(const std::string_view & str, const std::string_view & target)
 {
-	std::istringstream iss(str);
-	return { std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{} };
+	auto search = std::boyer_moore_searcher(target.begin(), target.end());
+	return countTargetOccurrences(str.begin(), str.end(), search);
+}
+
+std::vector<std::string_view> extractWords(std::string_view str_view, const std::string_view & delim)
+{
+	std::vector<std::string_view> word_vec;
+	while (!str_view.empty()) {
+		std::size_t delim_pos = str_view.find_first_of(delim);
+		std::size_t word_pos = str_view.find_first_not_of(delim);
+		if (delim_pos == str_view.npos) {
+			word_vec.push_back(str_view);
+			break;
+		}
+		else if (word_pos == str_view.npos) {
+			break;
+		}
+		else if (delim_pos > word_pos) {
+			word_vec.push_back(str_view.substr(0, delim_pos));
+			str_view.remove_prefix(delim_pos);
+		}
+		else {
+			str_view.remove_prefix(word_pos);
+		}
+	}
+	return word_vec;
+}
+
+bool caselessCompare(const std::string_view & str1, const std::string_view & str2)
+{
+	if (str1.size() != str2.size()) {
+		return false;
+	}
+	for (std::size_t i = 0; i < str1.size(); ++i) {
+		if (std::tolower(str1[i]) != std::tolower(str2[i])) {
+			return false;
+		}
+	}
+	return true;
 }
