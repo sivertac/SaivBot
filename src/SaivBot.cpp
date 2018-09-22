@@ -234,15 +234,24 @@ void SaivBot::consumeMsgBuffer()
 			}
 			
 			//commands
-			auto body_vec = extractWords(msg.getBody(), " \t,");
-			if (body_vec.size() >= 2 && caselessCompare(body_vec[0], m_nick)) {
-				auto command_it = std::find_if(
-					m_command_containers.begin(),
-					m_command_containers.end(),
-					[&](auto & cc) {return cc.m_command == body_vec[1]; }
-				);
-				if (command_it != m_command_containers.end()) {
-					command_it->m_func(msg, body_vec.cbegin() + 1, body_vec.cend());
+			{
+				std::string_view local_view = msg.getBody();
+				
+				if (auto first_word = OptionParser::extractFirstWordDestructive(local_view)) {
+					if (caselessCompare(*first_word, m_nick)) {
+						auto pair = OptionParser::extractFirstWord(local_view);
+						if (!pair.first.empty()) {
+							std::string_view second_word = pair.first;
+							auto command_it = std::find_if(
+								m_command_containers.begin(),
+								m_command_containers.end(),
+								[&](auto & cc) {return cc.m_command == second_word; }
+							);
+							if (command_it != m_command_containers.end()) {
+								command_it->m_func(msg, local_view);
+							}			
+						}
+					}
 				}
 			}
 		}
@@ -298,20 +307,29 @@ void SaivBot::countCommandCallback(Log && log, std::shared_ptr<std::string> sear
 	sendPRIVMSG(*channel_ptr, reply.str());
 }
 
-void SaivBot::shutdownCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end)
+void SaivBot::shutdownCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
 		m_running = false;
 	}
 }
 
-void SaivBot::helpCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end)
+void SaivBot::helpCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isWhitelisted(msg.getNick())) {
-		OptionParser parser(Option(m_command_containers[Commands::help_command].m_command, 1));
-		auto set = parser.parse(begin, end);
-		if (auto r = set.find(parser.get<0>())) {
-			auto it = std::find_if(m_command_containers.begin(), m_command_containers.end(), [&](auto & con) {return caselessCompare(con.m_command, r->get()[0]); });
+
+		using namespace OptionParser;
+
+		Parser parser(Option<WordType>(m_command_containers[Commands::help_command].m_command));
+		
+		auto set = parser.parse(input_line);
+
+		if (auto r = set.find<0>()) {
+
+			auto command = r->get<0>();
+
+			auto it = std::find_if(m_command_containers.begin(), m_command_containers.end(), [&](auto & con) {return caselessCompare(con.m_command, command); });
+			
 			if (it != m_command_containers.end()) {
 				std::stringstream reply;
 				reply << msg.getNick() << ", " << it->m_description << " Usage: " << it->m_command << " " << it->m_arguments;
@@ -321,18 +339,22 @@ void SaivBot::helpCommandFunc(const IRCMessage & msg, CommandContainer::Iterator
 	}
 }
 
-void SaivBot::countCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end)
+void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isWhitelisted(msg.getNick())) {
-		OptionParser parser(
-			Option(m_command_containers[Commands::count_command].m_command, 1), 
-			Option("-channel", 1), 
-			Option("-user", 1), 
-			Option("-year", 1), 
-			Option("-month", 1)
+
+		using namespace OptionParser;
+
+		Parser parser(
+			Option<StringType>(m_command_containers[Commands::count_command].m_command),
+			Option<WordType>(m_command_containers[Commands::count_command].m_command),
+			Option<WordType>("-channel"), 
+			Option<WordType>("-user"), 
+			Option<WordType>("-year"), 
+			Option<WordType>("-month")
 		);
 
-		auto set = parser.parse(begin, end);
+		auto set = parser.parse(input_line);
 
 		std::shared_ptr<std::string> search_ptr;
 		std::string channel(msg.getParams()[0]);
@@ -340,24 +362,27 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, CommandContainer::Iterato
 		std::string year = "2018";
 		std::string month = "September";
 
-		if (auto r = set.find(parser.get<0>())) {
-			search_ptr = std::make_shared<std::string>(r->get()[0]);
+		if (auto r = set.find<0>()) {
+			search_ptr = std::make_shared<std::string>(r->get<0>());
+		}
+		else if (auto r = set.find<1>()) {
+			search_ptr = std::make_shared<std::string>(r->get<0>());
 		}
 		else {
 			return;
 		}
 
-		if (auto r = set.find(parser.get<1>())) {
-			channel = r->get()[0];
+		if (auto r = set.find<2>()) {
+			channel = r->get<0>();
 		}
-		if (auto r = set.find(parser.get<2>())) {
-			user = r->get()[0];
+		if (auto r = set.find<3>()) {
+			user = r->get<0>();
 		}
-		if (auto r = set.find(parser.get<3>())) {
-			year = r->get()[0];
+		if (auto r = set.find<4>()) {
+			year = r->get<0>();
 		}
-		if (auto r = set.find(parser.get<4>())) {
-			month = r->get()[0];
+		if (auto r = set.find<5>()) {
+			month = r->get<0>();
 		}
 
 		if (channel[0] == '#') channel.erase(0, 1);
@@ -387,14 +412,18 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, CommandContainer::Iterato
 	}
 }
 
-void SaivBot::promoteCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end)
+void SaivBot::promoteCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
-		OptionParser parser(Option(m_command_containers[Commands::promote_command].m_command, 1));
-		auto set = parser.parse(begin, end);
-		if (auto r = set.find(parser.get<0>())) {
+
+		using namespace OptionParser;
+
+		Parser parser(Option<WordType>(m_command_containers[Commands::promote_command].m_command));
+		auto set = parser.parse(input_line);
+		if (auto r = set.find<0>()) {
+			auto ret_str = r->get<0>();
 			std::string user;
-			std::transform(r->get()[0].begin(), r->get()[0].end(), std::back_inserter(user), ::tolower);
+			std::transform(ret_str.begin(), ret_str.end(), std::back_inserter(user), ::tolower);
 			if (m_whitelist.find(user) == m_whitelist.end()) {
 				m_whitelist.emplace(user);
 				sendPRIVMSG(msg.getParams()[0], user + " promoted");
@@ -404,14 +433,18 @@ void SaivBot::promoteCommandFunc(const IRCMessage & msg, CommandContainer::Itera
 	}
 }
 
-void SaivBot::demoteCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end)
+void SaivBot::demoteCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
-		OptionParser parser(Option(m_command_containers[Commands::demote_command].m_command, 1));
-		auto set = parser.parse(begin, end);
-		if (auto r = set.find(parser.get<0>())) {
+
+		using namespace OptionParser;
+
+		Parser parser(Option<WordType>(m_command_containers[Commands::demote_command].m_command));
+		auto set = parser.parse(input_line);
+		if (auto r = set.find<0>()) {
+			auto ret_str = r->get<0>();
 			std::string user;
-			std::transform(r->get()[0].begin(), r->get()[0].end(), std::back_inserter(user), ::tolower);
+			std::transform(ret_str.begin(), ret_str.end(), std::back_inserter(user), ::tolower);
 			auto it = m_whitelist.find(user);
 			if (it != m_whitelist.end()) {
 				m_whitelist.erase(it);
@@ -422,14 +455,17 @@ void SaivBot::demoteCommandFunc(const IRCMessage & msg, CommandContainer::Iterat
 	}
 }
 
-void SaivBot::joinCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end)
+void SaivBot::joinCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
-		OptionParser parser(Option(m_command_containers[Commands::join_command].m_command, 1));
-		auto set = parser.parse(begin, end);
-		if (auto r = set.find(parser.get<0>())) {
+
+		using namespace OptionParser;
+
+		Parser parser(Option<WordType>(m_command_containers[Commands::join_command].m_command));
+		auto set = parser.parse(input_line);
+		if (auto r = set.find<0>()) {
 			std::string channel("#");
-			channel.append(r->get()[0]);
+			channel.append(r->get<0>());
 			std::transform(channel.begin(), channel.end(), channel.begin(), ::tolower);
 			sendJOIN(channel);
 			sendPRIVMSG(channel, "monkaMEGA");
@@ -437,14 +473,17 @@ void SaivBot::joinCommandFunc(const IRCMessage & msg, CommandContainer::Iterator
 	}
 }
 
-void SaivBot::partCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end)
+void SaivBot::partCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
-		OptionParser parser(Option(m_command_containers[Commands::part_command].m_command, 1));
-		auto set = parser.parse(begin, end);
-		if (auto r = set.find(parser.get<0>())) {
+
+		using namespace OptionParser;
+		
+		Parser parser(Option<WordType>(m_command_containers[Commands::part_command].m_command));
+		auto set = parser.parse(input_line);
+		if (auto r = set.find<0>()) {
 			std::string channel("#");
-			channel.append(r->get()[0]);
+			channel.append(r->get<0>());
 			std::transform(channel.begin(), channel.end(), channel.begin(), ::tolower);
 			sendPART(channel);
 		}
@@ -565,30 +604,6 @@ std::size_t countTargetOccurrences(const std::string_view & str, const std::stri
 {
 	auto search = std::boyer_moore_searcher(target.begin(), target.end());
 	return countTargetOccurrences(str.begin(), str.end(), search);
-}
-
-std::vector<std::string_view> extractWords(std::string_view str_view, const std::string_view & delim)
-{
-	std::vector<std::string_view> word_vec;
-	while (!str_view.empty()) {
-		std::size_t delim_pos = str_view.find_first_of(delim);
-		std::size_t word_pos = str_view.find_first_not_of(delim);
-		if (delim_pos == str_view.npos) {
-			word_vec.push_back(str_view);
-			break;
-		}
-		else if (word_pos == str_view.npos) {
-			break;
-		}
-		else if (delim_pos > word_pos) {
-			word_vec.push_back(str_view.substr(0, delim_pos));
-			str_view.remove_prefix(delim_pos);
-		}
-		else {
-			str_view.remove_prefix(word_pos);
-		}
-	}
-	return word_vec;
 }
 
 bool caselessCompare(const std::string_view & str1, const std::string_view & str2)

@@ -23,20 +23,21 @@
 #include <unordered_set>
 
 //boost
-#include <boost\asio.hpp>
+#include <boost/asio.hpp>
 
 //json
-#include <nlohmann\json.hpp>
+#include <nlohmann/json.hpp>
+
+//OptionParser
+#include <OptionParser.hpp>
 
 //Local
 #include "LogDownloader.hpp"
-#include "OptionParser.hpp"
 
 class IRCMessage
 {
 public:
 	/*
-	
 	*/
 	IRCMessage(std::string && buf) :
 		m_data(std::move(buf))
@@ -79,12 +80,14 @@ Command container.
 */
 struct CommandContainer
 {
-	using IteratorType = std::vector<std::string_view>::const_iterator;
+	//using IteratorType = std::vector<std::string_view>::const_iterator;
 
-	using FuncType = std::function<
-		void(const IRCMessage&,
-			IteratorType,
-			IteratorType)>;
+	//using FuncType = std::function<
+	//	void(const IRCMessage&,
+	//		IteratorType,
+	//		IteratorType)>;
+
+	using FuncType = std::function<void(const IRCMessage&, std::string_view)>;
 
 
 	CommandContainer(
@@ -229,7 +232,7 @@ private:
 	template <typename FuncPtr>
 	auto bindCommand(FuncPtr func)
 	{
-		return std::bind(func, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+		return std::bind(func, this, std::placeholders::_1, std::placeholders::_2);
 	}
 
 	enum Commands
@@ -247,13 +250,13 @@ private:
 	/*
 	Command functions.
 	*/
-	void shutdownCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end);
-	void helpCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end);
-	void countCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end);
-	void promoteCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end);
-	void demoteCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end);
-	void joinCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end);
-	void partCommandFunc(const IRCMessage & msg, CommandContainer::IteratorType begin, CommandContainer::IteratorType end);
+	void shutdownCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void helpCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void countCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void promoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void demoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void joinCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void partCommandFunc(const IRCMessage & msg, std::string_view input_line);
 
 	const std::array<CommandContainer, Commands::NUMBER_OF_COMMANDS> m_command_containers
 	{
@@ -338,11 +341,6 @@ std::size_t countTargetOccurrences(Iterator begin, Iterator end, const Searcher 
 	return count;
 }
 std::size_t countTargetOccurrences(const std::string_view & str, const std::string_view & target);
-
-/*
-Split string by spaces.
-*/
-std::vector<std::string_view> extractWords(std::string_view str_view, const std::string_view & delim);
 
 /*
 Caseless compare.

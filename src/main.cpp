@@ -15,7 +15,7 @@
 int main(int argc, char** argv)
 {
 	boost::asio::io_context ioc;
-
+	
 	std::filesystem::path config_path("Config.txt");
 	SaivBot client(ioc, config_path);
 	client.run();
