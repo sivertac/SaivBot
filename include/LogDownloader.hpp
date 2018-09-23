@@ -36,7 +36,7 @@ public:
 
 	/*
 	*/
-	const boost::posix_time::time_period & getPeriod();
+	const boost::posix_time::time_period & getPeriod() const;
 
 	/*
 	*/
@@ -80,7 +80,7 @@ private:
 	std::vector<std::string_view> m_messages;
 };
 
-class LogDownloader : public std::enable_shared_from_this<LogDownloader>
+class GempirUserLogDownloader : public std::enable_shared_from_this<GempirUserLogDownloader>
 {
 public:
 	using CallbackType = std::function<void(Log&&)>;
@@ -89,16 +89,25 @@ public:
 	using ResponseType = boost::beast::http::response<boost::beast::http::string_body>;
 
 	/*
-	Resolver and stream require an io_context
+	Resolver and stream require an io_context.
 	*/
-	LogDownloader(boost::asio::io_context & ioc) :
-		m_ioc(ioc),
-		m_ctx{ boost::asio::ssl::context::sslv23_client },
-		m_resolver(ioc)
-	{
-		load_root_certificates(m_ctx);
-		m_stream_ptr = std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>(m_ioc, m_ctx);
-	}
+	GempirUserLogDownloader(boost::asio::io_context & ioc);
+
+	/*
+	*/
+	static std::string createGempirUserTarget(
+		const std::string_view & channel,
+		const std::string_view & user,
+		const boost::gregorian::greg_month & month,
+		const boost::gregorian::greg_year & year
+	);
+
+	/*
+	*/
+	static std::string createGempirChannelTarget(
+		const std::string_view & channel,
+		const boost::gregorian::date & date
+	);
 
 	/*
 	*/
@@ -106,132 +115,36 @@ public:
 		CallbackType callback,
 		const std::string & host,
 		const std::string & port,
-		const std::string & target,
+		const std::string & channel,
+		const std::string & user,
+		const boost::gregorian::greg_month & month,
+		const boost::gregorian::greg_year & year,
 		int version = 11
-	)
-	{
-		m_host = host;
-		m_port = port;
-		m_version = version;
-		m_target = target;
-		m_callback = callback;
-
-		if (!SSL_set_tlsext_host_name(m_stream_ptr->native_handle(), host.c_str())) {
-			boost::system::error_code ec{ static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category() };
-			std::cerr << ec.message() << "\n";
-			return;
-		}
-
-		m_request.version(m_version);
-		m_request.method(boost::beast::http::verb::get);
-		m_request.target(m_target);
-		m_request.set(boost::beast::http::field::host, m_host);
-		m_request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-
-		m_resolver.async_resolve(
-			host,
-			port,
-			std::bind(
-				&LogDownloader::resolveHandler,
-				shared_from_this(),
-				std::placeholders::_1,
-				std::placeholders::_2
-			)
-		);
-	}
+	);
 
 	/*
 	*/
-	void resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results)
-	{
-		if (ec) throw std::runtime_error(ec.message());
-		boost::asio::async_connect(
-			m_stream_ptr->next_layer(),
-			results.begin(),
-			results.end(),
-			std::bind(
-				&LogDownloader::connectHandler,
-				shared_from_this(),
-				std::placeholders::_1
-			)
-		);
-	}
+	void resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results);
 
 	/*
 	*/
-	void connectHandler(boost::system::error_code ec)
-	{
-		if (ec) throw std::runtime_error(ec.message());
-		m_stream_ptr->async_handshake(
-			ssl::stream_base::client,
-			std::bind(
-				&LogDownloader::handshakeHandler,
-				shared_from_this(),
-				std::placeholders::_1
-			)
-		);
-	}
+	void connectHandler(boost::system::error_code ec);
 
 	/*
 	*/
-	void handshakeHandler(boost::system::error_code ec)
-	{
-		if (ec) throw std::runtime_error(ec.message());
-
-		boost::beast::http::async_write(
-			*m_stream_ptr,
-			m_request,
-			std::bind(
-				&LogDownloader::writeHandler,
-				shared_from_this(),
-				std::placeholders::_1,
-				std::placeholders::_2
-			)
-		);
-	}
+	void handshakeHandler(boost::system::error_code ec);
 	
+	/*
+	*/
+	void writeHandler(boost::system::error_code ec, std::size_t bytes_transferred);
 
 	/*
 	*/
-	void writeHandler(boost::system::error_code ec, std::size_t bytes_transferred)
-	{
-		if (ec) throw std::runtime_error(ec.message());
-		boost::ignore_unused(bytes_transferred);
-		boost::beast::http::async_read(*m_stream_ptr, m_buffer, m_response,
-			std::bind(
-				&LogDownloader::readHandler,
-				shared_from_this(),
-				std::placeholders::_1,
-				std::placeholders::_2
-			)
-		);
-	}
+	void readHandler(boost::system::error_code ec, std::size_t bytes_transferred);
 
 	/*
 	*/
-	void readHandler(boost::system::error_code ec, std::size_t bytes_transferred)
-	{
-		boost::ignore_unused(bytes_transferred);
-		m_stream_ptr->async_shutdown(
-			std::bind(
-				&LogDownloader::shutdownHandler,
-				shared_from_this(),
-				std::placeholders::_1
-			)
-		);
-		if (ec) throw std::runtime_error(ec.message());
-	}
-
-	/*
-	*/
-	void shutdownHandler(boost::system::error_code ec)
-	{
-		if (ec && ec.value() != boost::asio::ssl::error::stream_truncated) throw std::runtime_error(ec.message());
-		boost::posix_time::ptime start(boost::gregorian::date(1996, 8, 24));
-		boost::posix_time::ptime end(boost::gregorian::date(2018, 8, 24));
-		Log log(boost::posix_time::time_period(start, end), std::move(m_response.body()));
-		m_callback(std::move(log));
-	}
+	void shutdownHandler(boost::system::error_code ec);
 
 private:
 
@@ -241,10 +154,15 @@ private:
 	std::unique_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> m_stream_ptr;
 	boost::beast::flat_buffer m_buffer;
 
+	int m_version;
 	std::string m_host;
 	std::string m_port;
-	int m_version;
+
+	std::string m_channel;
+	std::string m_user;
 	
+	boost::posix_time::time_period m_period;
+
 	std::string m_target;
 	RequestType m_request;
 	ResponseType m_response;

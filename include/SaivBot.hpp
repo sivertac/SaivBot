@@ -21,6 +21,7 @@
 #include <fstream>
 #include <filesystem>
 #include <unordered_set>
+#include <charconv>
 
 //boost
 #include <boost/asio.hpp>
@@ -33,17 +34,27 @@
 
 //Local
 #include "LogDownloader.hpp"
+#include "DankHttp.hpp"
 
 class IRCMessage
 {
 public:
 	/*
 	*/
+	IRCMessage()
+	{
+	}
 	IRCMessage(std::string && buf) :
 		m_data(std::move(buf))
 	{
 		parse();
 	}
+
+	/*
+	Copy.
+	*/
+	IRCMessage(const IRCMessage & source);
+	IRCMessage & operator=(const IRCMessage & source);
 
 	/*
 	Getters.
@@ -240,6 +251,8 @@ private:
 		shutdown = 0,
 		help_command,
 		count_command,
+		//search_command,
+		find_command,
 		promote_command,
 		demote_command,
 		join_command,
@@ -253,6 +266,8 @@ private:
 	void shutdownCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void helpCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void countCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	//void searchCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void findCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void promoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void demoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void joinCommandFunc(const IRCMessage & msg, std::string_view input_line);
@@ -262,22 +277,59 @@ private:
 	{
 		CommandContainer("shutdown", "", "Orderly shut down execution and save config.", bindCommand(&SaivBot::shutdownCommandFunc)),
 		CommandContainer("help", "<command>", "Get info about command.", bindCommand(&SaivBot::helpCommandFunc)),
-		CommandContainer("count", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Count the occurrences of target in log.", bindCommand(&SaivBot::countCommandFunc)),
+		CommandContainer("count", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Count the occurrences of target in logs.", bindCommand(&SaivBot::countCommandFunc)),
+		//CommandContainer("search", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Search for target in logs", bindCommand(&SaivBot::searchCommandFunc)),
+		CommandContainer("find", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Find all lines containing target in logs.", bindCommand(&SaivBot::findCommandFunc)),
 		CommandContainer("promote", "<user>", "Whitelist user.", bindCommand(&SaivBot::promoteCommandFunc)),
 		CommandContainer("demote", "<user>", "Remove user from whitelist.", bindCommand(&SaivBot::demoteCommandFunc)),
 		CommandContainer("join", "<channel>", "Join channel.", bindCommand(&SaivBot::joinCommandFunc)),
 		CommandContainer("part", "<channel>", "Part channel.", bindCommand(&SaivBot::partCommandFunc))
 	};
+	
+	using CountCallbackSharedPtr = std::shared_ptr<
+		std::tuple<
+			std::mutex, 
+			std::size_t, 
+			std::string,
+			std::function<bool(char, char)>,
+			IRCMessage, 
+			std::vector<Log>
+		>>;
 
 	/*
 	Count command callback.
 	*/
 	void countCommandCallback(
 		Log && log,
-		std::shared_ptr<std::string> search_ptr,
-		std::shared_ptr<std::string> channel_ptr,
-		std::shared_ptr<std::string> nick_ptr
+		CountCallbackSharedPtr ptr
 	);
+
+	using FindCallbackSharedPtr = std::shared_ptr<
+		std::tuple<
+			std::mutex,
+			std::size_t,
+			std::string,
+			std::function<bool(char, char)>,
+			IRCMessage,
+			std::vector<Log>
+		>>;
+
+	/*
+	Search command callback.
+	*/
+	void findCommandCallback(
+		Log && log,
+		FindCallbackSharedPtr ptr
+	);
+
+	/*
+	Search command callback 2.
+	*/
+	void findCommandCallback2(
+		std::string && str,
+		FindCallbackSharedPtr ptr
+	);
+
 };
 
 /*
@@ -336,7 +388,7 @@ std::size_t countTargetOccurrences(Iterator begin, Iterator end, const Searcher 
 	auto it = begin;
 	while ((it = std::search(it, end, searcher)) != end) {
 		++count;
-		++it;
+		std::advance(it, 1);
 	}
 	return count;
 }
@@ -347,5 +399,19 @@ Caseless compare.
 */
 bool caselessCompare(const std::string_view & str1, const std::string_view & str2);
 
+/*
+Parse date from string.
+*/
+std::optional<boost::gregorian::date> parseDateString(const std::string_view & str);
+
+/*
+Parse month string input.
+*/
+std::optional<boost::gregorian::greg_month> parseMonthString(const std::string_view & str);
+
+/*
+Parse year string input.
+*/
+std::optional<boost::gregorian::greg_year> parseYearString(const std::string_view & str);
 
 #endif // !SaivBot_HEADER

@@ -18,7 +18,10 @@
 
 namespace DankHttp
 {
-	class Uploader : public std::enable_shared_from_this<Uploader>
+	const std::string_view boundary("pajaSpajaSpajaSpajaSpajaS");
+	const std::string_view crlf("\r\n");
+
+	class NuulsUploader : public std::enable_shared_from_this<NuulsUploader>
 	{
 	public:
 		using CallbackType = std::function<void(std::string&&)>;
@@ -27,13 +30,17 @@ namespace DankHttp
 
 		/*
 		*/
-		Uploader(boost::asio::io_context & ioc);
+		NuulsUploader(boost::asio::io_context & ioc);
+
+		/*
+		*/
+		static std::string packBody(const std::string & data);
 
 		/*
 		*/
 		void run(
 			CallbackType callback,
-			std::string && data, 
+			const std::string & data, 
 			const std::string & host,
 			const std::string & port,
 			const std::string & target,

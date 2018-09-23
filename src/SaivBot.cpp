@@ -215,7 +215,6 @@ void SaivBot::consumeMsgBuffer()
 {
 	while (!m_msg_buffer.empty()) {
 		auto & msg = m_msg_buffer.front();
-		
 		if (msg.getCommand() != "PRIVMSG") {
 			if (msg.getCommand() == "PING") {
 				sendIRC("PONG");
@@ -289,24 +288,6 @@ bool SaivBot::isWhitelisted(const std::string_view & user)
 	return m_whitelist.find(str) != m_whitelist.end();
 }
 
-void SaivBot::countCommandCallback(Log && log, std::shared_ptr<std::string> search_ptr, std::shared_ptr<std::string> channel_ptr, std::shared_ptr<std::string> nick_ptr)
-{
-	std::stringstream reply;
-	std::size_t count = 0;
-	auto searcher = std::boyer_moore_searcher(search_ptr->begin(), search_ptr->end());
-	if (log.getData() == "{\"message\":\"Not Found\"}") {
-		reply << *nick_ptr << ", no logs found NaM";	
-	}
-	else {
-		for (std::size_t i = 0; i < log.getNumberOfLines(); ++i) {
-			auto & msg = log.getLines()[i];
-			count += countTargetOccurrences(msg.begin(), msg.end(), searcher);
-		}
-		reply << *nick_ptr << ", count: " << count;
-	}
-	sendPRIVMSG(*channel_ptr, reply.str());
-}
-
 void SaivBot::shutdownCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
@@ -342,73 +323,297 @@ void SaivBot::helpCommandFunc(const IRCMessage & msg, std::string_view input_lin
 void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isWhitelisted(msg.getNick())) {
-
+		
 		using namespace OptionParser;
 
 		Parser parser(
 			Option<StringType>(m_command_containers[Commands::count_command].m_command),
 			Option<WordType>(m_command_containers[Commands::count_command].m_command),
-			Option<WordType>("-channel"), 
-			Option<WordType>("-user"), 
-			Option<WordType>("-year"), 
-			Option<WordType>("-month")
+			Option<WordType>("-channel"),
+			Option<WordType>("-user"),
+			Option<ListType>("-year"),
+			Option<WordType>("-year"),
+			Option<ListType>("-month"),
+			Option<WordType>("-month"),
+			Option<>("-caseless")
 		);
 
 		auto set = parser.parse(input_line);
 
-		std::shared_ptr<std::string> search_ptr;
-		std::string channel(msg.getParams()[0]);
-		std::string user(msg.getNick());
-		std::string year = "2018";
-		std::string month = "September";
+		std::string search_str;
+		std::string channel;
+		std::string user;
+
+		std::function<bool(char, char)> predicate;
+
+		boost::gregorian::date current_date(boost::gregorian::day_clock::universal_day());
+
+		std::vector<boost::gregorian::greg_year> years;
+		std::vector<boost::gregorian::greg_month> months;
+
+		//boost::posix_time::
 
 		if (auto r = set.find<0>()) {
-			search_ptr = std::make_shared<std::string>(r->get<0>());
+			search_str = r->get<0>();
 		}
 		else if (auto r = set.find<1>()) {
-			search_ptr = std::make_shared<std::string>(r->get<0>());
+			search_str = r->get<0>();
 		}
 		else {
 			return;
 		}
 
-		if (auto r = set.find<2>()) {
+		if (auto r = set.find<2>()) { //channel
 			channel = r->get<0>();
 		}
-		if (auto r = set.find<3>()) {
+		else {
+			channel = msg.getParams()[0];
+		}
+
+		if (auto r = set.find<3>()) { //user
 			user = r->get<0>();
 		}
-		if (auto r = set.find<4>()) {
-			year = r->get<0>();
+		else {
+			user = msg.getNick();
 		}
-		if (auto r = set.find<5>()) {
-			month = r->get<0>();
+
+		if (auto r = set.find<4>()) { //year list
+			auto list = r->get<0>();
+			for (auto & e : list) {
+				if (auto year = parseYearString(e)) {
+					years.push_back(*year);
+				}
+				else {
+					sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid year. NaM"));
+					return;
+				}
+			}
+		}
+		else if (auto r = set.find<5>()) { //year word
+			auto word = r->get<0>();
+			if (auto year = parseYearString(word)) {
+				years.push_back(*year);
+			}
+			else {
+				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid year. NaM"));
+				return;
+			}
+		}
+		else {
+			years.push_back(current_date.year());
+		}
+
+		if (auto r = set.find<6>()) { //month list
+			auto list = r->get<0>();
+			for (auto & e : list) {
+				if (auto month = parseMonthString(e)) {
+					months.push_back(*month);
+				}
+				else {
+					sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid month. NaM"));
+					return;
+				}
+			}
+		}
+		else if (auto r = set.find<7>()) { //month word
+			auto word = r->get<0>();
+			if (auto month = parseMonthString(word)) {
+				months.push_back(*month);
+			}
+			else {
+				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid month. NaM"));
+				return;
+			}
+		}
+		else {
+			months.push_back(current_date.month());
+		}
+
+		if (auto r = set.find<8>()) {
+			predicate = [](char l, char r) {return std::tolower(l) == std::tolower(r); };
+		}
+		else {
+			predicate = std::equal_to<char>();
+		}
+
+		if (channel[0] == '#') channel.erase(0, 1);
+		
+		const std::string host("api.gempir.com");
+		const std::string port("443");
+
+		CountCallbackSharedPtr callback_ptr = std::make_shared<CountCallbackSharedPtr::element_type>();
+		std::get<1>(*callback_ptr) = years.size() * months.size();
+		std::get<2>(*callback_ptr) = std::move(search_str);
+		std::get<3>(*callback_ptr) = predicate;
+		std::get<4>(*callback_ptr) = msg;
+		
+		for (auto & y : years) {
+			for (auto & m : months) {
+				std::make_shared<GempirUserLogDownloader>(m_ioc)->run(
+					std::bind(
+						&SaivBot::countCommandCallback,
+						this,
+						std::placeholders::_1,
+						callback_ptr
+					),
+					host,
+					port,
+					channel,
+					user,
+					m,
+					y
+				);
+			}
+		}
+	}
+}
+
+void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_line)
+{
+	if (isWhitelisted(msg.getNick())) {
+
+		using namespace OptionParser;
+
+		Parser parser(
+			Option<StringType>(m_command_containers[Commands::find_command].m_command),
+			Option<WordType>(m_command_containers[Commands::find_command].m_command),
+			Option<WordType>("-channel"),
+			Option<WordType>("-user"),
+			Option<ListType>("-year"),
+			Option<WordType>("-year"),
+			Option<ListType>("-month"),
+			Option<WordType>("-month"),
+			Option<>("-caseless")
+		);
+
+		auto set = parser.parse(input_line);
+
+		std::string search_str;
+		std::string channel;
+		std::string user;
+
+		std::function<bool(char, char)> predicate;
+
+		boost::gregorian::date current_date(boost::gregorian::day_clock::universal_day());
+
+		std::vector<boost::gregorian::greg_year> years;
+		std::vector<boost::gregorian::greg_month> months;
+
+		//boost::posix_time::
+
+		if (auto r = set.find<0>()) {
+			search_str = r->get<0>();
+		}
+		else if (auto r = set.find<1>()) {
+			search_str = r->get<0>();
+		}
+		else {
+			return;
+		}
+
+		if (auto r = set.find<2>()) { //channel
+			channel = r->get<0>();
+		}
+		else {
+			channel = msg.getParams()[0];
+		}
+
+		if (auto r = set.find<3>()) { //user
+			user = r->get<0>();
+		}
+		else {
+			user = msg.getNick();
+		}
+
+		if (auto r = set.find<4>()) { //year list
+			auto list = r->get<0>();
+			for (auto & e : list) {
+				if (auto year = parseYearString(e)) {
+					years.push_back(*year);
+				}
+				else {
+					sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid year. NaM"));
+					return;
+				}
+			}
+		}
+		else if (auto r = set.find<5>()) { //year word
+			auto word = r->get<0>();
+			if (auto year = parseYearString(word)) {
+				years.push_back(*year);
+			}
+			else {
+				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid year. NaM"));
+				return;
+			}
+		}
+		else {
+			years.push_back(current_date.year());
+		}
+
+		if (auto r = set.find<6>()) { //month list
+			auto list = r->get<0>();
+			for (auto & e : list) {
+				if (auto month = parseMonthString(e)) {
+					months.push_back(*month);
+				}
+				else {
+					sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid month. NaM"));
+					return;
+				}
+			}
+		}
+		else if (auto r = set.find<7>()) { //month word
+			auto word = r->get<0>();
+			if (auto month = parseMonthString(word)) {
+				months.push_back(*month);
+			}
+			else {
+				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid month. NaM"));
+				return;
+			}
+		}
+		else {
+			months.push_back(current_date.month());
+		}
+
+		if (auto r = set.find<8>()) {
+			predicate = [](char l, char r) {return std::tolower(l) == std::tolower(r); };
+		}
+		else {
+			predicate = std::equal_to<char>();
 		}
 
 		if (channel[0] == '#') channel.erase(0, 1);
 
-		std::stringstream target_ss;
-		target_ss << "/channel/" << channel << "/user/" << user << "/" << year << "/" << month;
-
 		const std::string host("api.gempir.com");
-		const std::string target = target_ss.str();
 		const std::string port("443");
 
-		auto msg_ptr = std::make_shared<IRCMessage>(msg);
+		FindCallbackSharedPtr callback_ptr = std::make_shared<FindCallbackSharedPtr::element_type>();
+		std::get<1>(*callback_ptr) = years.size() * months.size();
+		std::get<2>(*callback_ptr) = std::move(search_str);
+		std::get<3>(*callback_ptr) = predicate;
+		std::get<4>(*callback_ptr) = msg;
 
-		std::make_shared<LogDownloader>(m_ioc)->run(
-			std::bind(
-				&SaivBot::countCommandCallback,
-				this,
-				std::placeholders::_1,
-				search_ptr,
-				std::make_shared<std::string>(msg.getParams()[0]),
-				std::make_shared<std::string>(msg.getNick())
-			),
-			host,
-			port,
-			target
-		);
+		for (auto & y : years) {
+			for (auto & m : months) {
+				std::make_shared<GempirUserLogDownloader>(m_ioc)->run(
+					std::bind(
+						&SaivBot::findCommandCallback,
+						this,
+						std::placeholders::_1,
+						callback_ptr
+					),
+					host,
+					port,
+					channel,
+					user,
+					m,
+					y
+				);
+			}
+		}
+
 	}
 }
 
@@ -490,6 +695,120 @@ void SaivBot::partCommandFunc(const IRCMessage & msg, std::string_view input_lin
 	}
 }
 
+//void SaivBot::countCommandCallback(Log && log, std::shared_ptr<std::pair<std::mutex, std::size_t>> mutex_ptr, std::shared_ptr<const std::string> search_ptr, std::shared_ptr<const IRCMessage> msg_ptr, std::shared_ptr<std::vector<Log>> log_container_ptr)
+void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
+{
+	std::mutex & mutex = std::get<0>(*ptr);
+	std::size_t & mutex_count = std::get<1>(*ptr);
+	std::string & search_str = std::get<2>(*ptr);
+	auto predicate = std::get<3>(*ptr);
+	const IRCMessage & msg = std::get<4>(*ptr);
+	std::vector<Log> & log_container = std::get<5>(*ptr);
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		--mutex_count;
+		log_container.push_back(std::move(log));
+		if (mutex_count == 0) {
+			auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
+			//auto searcher = std::boyer_moore_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
+			//auto searcher = std::boyer_moore_horspool_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
+			std::size_t count = 0;
+			for (auto & l : log_container) {
+				if (l.getData() == "{\"message\":\"Not Found\"}") {
+					continue;
+				}
+				else {
+					for (std::size_t i = 0; i < l.getNumberOfLines(); ++i) {
+						auto & msg = l.getMessages()[i];
+						count += countTargetOccurrences(msg.begin(), msg.end(), searcher);	
+					}
+				}
+			}
+			std::stringstream reply;
+			reply << msg.getNick() << ", count: " << count << ", logs: " << log_container.size();
+			sendPRIVMSG(msg.getParams()[0], reply.str());
+		}
+	}
+}
+
+void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
+{
+	std::mutex & mutex = std::get<0>(*ptr);
+	std::size_t & mutex_count = std::get<1>(*ptr);
+	std::string & search_str = std::get<2>(*ptr);
+	auto predicate = std::get<3>(*ptr);
+	const IRCMessage & msg = std::get<4>(*ptr);
+	std::vector<Log> & log_container = std::get<5>(*ptr);
+
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		--mutex_count;
+		log_container.push_back(std::move(log));
+		if (mutex_count == 0) {
+			std::stringstream lines_found_stream;
+			auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
+			std::size_t count = 0;
+			for (auto & l : log_container) {
+				if (l.getData() == "{\"message\":\"Not Found\"}") {
+					continue;
+				}
+				else {
+					for (std::size_t i = 0; i < l.getNumberOfLines(); ++i) {
+						auto & time = l.getTimes()[i];
+						auto & msg = l.getMessages()[i];
+						if (std::search(msg.begin(), msg.end(), searcher) != msg.end()) {
+							lines_found_stream << time << ": " << msg << "\n";
+							++count;
+						}
+					}
+				}
+			}
+			if (count > 0) {
+				std::make_shared<DankHttp::NuulsUploader>(m_ioc)->run(
+					std::bind(
+						&SaivBot::findCommandCallback2,
+						this,
+						std::placeholders::_1,
+						ptr
+					),
+					lines_found_stream.str(), 
+					"i.nuuls.com", 
+					"443", 
+					"/upload"
+				);
+			}
+		}
+	}
+}
+
+void SaivBot::findCommandCallback2(std::string && str, FindCallbackSharedPtr ptr)
+{
+	const IRCMessage & msg = std::get<4>(*ptr);
+	std::stringstream reply;
+	reply << msg.getNick() << ", " << str;
+	sendPRIVMSG(msg.getParams()[0], reply.str());
+}
+
+/*
+void SaivBot::countCommandCallback(Log && log, std::shared_ptr<std::string> search_ptr, std::shared_ptr<std::string> channel_ptr, std::shared_ptr<std::string> nick_ptr)
+{
+	std::stringstream reply;
+	std::size_t count = 0;
+	auto searcher = std::boyer_moore_searcher(search_ptr->begin(), search_ptr->end());
+	if (log.getData() == "{\"message\":\"Not Found\"}") {
+		reply << *nick_ptr << ", no logs found NaM";
+	}
+	else {
+		for (std::size_t i = 0; i < log.getNumberOfLines(); ++i) {
+			auto & msg = log.getLines()[i];
+			count += countTargetOccurrences(msg.begin(), msg.end(), searcher);
+		}
+		reply << *nick_ptr << ", count: " << count;
+	}
+	sendPRIVMSG(*channel_ptr, reply.str());
+}
+*/
+
 void IRCMessage::parse()
 {
 	std::string_view data_view(m_data);
@@ -565,6 +884,101 @@ void IRCMessage::print(std::ostream & stream)
 		<< "body: " << m_body_view << "\n";
 }
 
+IRCMessage::IRCMessage(const IRCMessage & source)
+{
+	//copy data string
+	m_data = source.m_data;
+
+	//create new string_views relative to m_data
+	{
+		auto & source_view = source.m_nick_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_nick_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+	{
+		auto & source_view = source.m_user_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_user_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+	{
+		auto & source_view = source.m_host_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_host_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+	{
+		auto & source_view = source.m_command_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_command_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+	{
+		auto & source_vec = source.m_params_vec;
+		m_params_vec.reserve(source_vec.size());
+		for (auto & e : source_vec) {
+			assert(e.data() >= source.m_data.data());
+			std::ptrdiff_t distance = e.data() - source.m_data.data();
+			m_params_vec.emplace_back(m_data.data() + distance, e.size());
+		}
+	}
+	{
+		auto & source_view = source.m_body_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_body_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+}
+
+IRCMessage & IRCMessage::operator=(const IRCMessage & source)
+{
+	//copy data string
+	m_data = source.m_data;
+
+	//create new string_views relative to m_data
+	{
+		auto & source_view = source.m_nick_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_nick_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+	{
+		auto & source_view = source.m_user_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_user_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+	{
+		auto & source_view = source.m_host_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_host_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+	{
+		auto & source_view = source.m_command_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_command_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+	{
+		auto & source_vec = source.m_params_vec;
+		m_params_vec.reserve(source_vec.size());
+		for (auto & e : source_vec) {
+			assert(e.data() >= source.m_data.data());
+			std::ptrdiff_t distance = e.data() - source.m_data.data();
+			m_params_vec.emplace_back(m_data.data() + distance, e.size());
+		}
+	}
+	{
+		auto & source_view = source.m_body_view;
+		assert(source_view.data() >= source.m_data.data());
+		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
+		m_body_view = std::string_view(m_data.data() + distance, source_view.size());
+	}
+	return *this;
+}
+
 const std::string & IRCMessage::getData() const
 {
 	return m_data;
@@ -617,4 +1031,42 @@ bool caselessCompare(const std::string_view & str1, const std::string_view & str
 		}
 	}
 	return true;
+}
+
+std::optional<boost::gregorian::date> parseDateString(const std::string_view & str)
+{
+	try {
+		boost::gregorian::date date = boost::gregorian::from_simple_string(std::string(str));
+		return date;
+	}
+	catch (std::exception&) {
+		return std::nullopt;
+	}
+}
+
+std::optional<boost::gregorian::greg_month> parseMonthString(const std::string_view & str)
+{
+	try {
+		boost::gregorian::greg_month month(boost::date_time::month_str_to_ushort<boost::gregorian::greg_month>(std::string(str)));
+		return month;
+	}
+	catch (std::exception&) {
+		return std::nullopt;
+	}
+}
+
+std::optional<boost::gregorian::greg_year> parseYearString(const std::string_view & str)
+{
+	try {
+		unsigned short n;
+		auto ret = std::from_chars(str.data(), str.data() + str.size(), n);
+		if (ret.ec == std::errc::invalid_argument) {
+			return std::nullopt;
+		}
+		boost::gregorian::greg_year year(n);
+		return year;
+	}
+	catch (std::exception) {
+		return std::nullopt;
+	}
 }

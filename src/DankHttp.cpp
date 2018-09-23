@@ -4,7 +4,7 @@
 
 namespace DankHttp
 {
-	Uploader::Uploader(boost::asio::io_context & ioc) :
+	NuulsUploader::NuulsUploader(boost::asio::io_context & ioc) :
 		m_ioc(ioc),
 		m_ctx{ boost::asio::ssl::context::sslv23_client },
 		m_resolver(ioc)
@@ -13,7 +13,20 @@ namespace DankHttp
 		m_stream_ptr = std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>(m_ioc, m_ctx);
 	}
 
-	void Uploader::run(CallbackType callback, std::string && data, const std::string & host, const std::string & port, const std::string & target, int version)
+	std::string NuulsUploader::packBody(const std::string & data)
+	{
+		std::string body;
+		//body.append(crlf);
+		body.append("--").append(boundary).append(crlf);
+		body.append("Content-Disposition: form-data; name=xddd; filename=xddd.png").append(crlf);
+		body.append("Content-Type: text/plain").append(crlf);
+		body.append(crlf);
+		body.append(data).append(crlf);
+		body.append("--").append(boundary).append("--");
+		return body;
+	}
+
+	void NuulsUploader::run(CallbackType callback, const std::string & data, const std::string & host, const std::string & port, const std::string & target, int version)
 	{
 		m_host = host;
 		m_port = port;
@@ -27,19 +40,22 @@ namespace DankHttp
 			return;
 		}
 
+		std::string body = packBody(data);
+
 		m_request.version(m_version);
-		m_request.method(boost::beast::http::verb::post);
-		m_request.target(m_target);
-		m_request.set(boost::beast::http::field::content_type, "multipart/form-data");
 		m_request.set(boost::beast::http::field::host, m_host);
+		m_request.target(m_target);
 		m_request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-		m_request.set(boost::beast::http::field::body, std::move(data));
+		m_request.method(boost::beast::http::verb::post);
+		m_request.set(boost::beast::http::field::content_length, std::to_string(body.size()));
+		m_request.set(boost::beast::http::field::content_type, std::string("multipart/form-data; boundary=").append(boundary));
+		m_request.body() = std::move(body);
 
 		m_resolver.async_resolve(
 			m_host,
 			m_port,
 			std::bind(
-				&Uploader::resolveHandler,
+				&NuulsUploader::resolveHandler,
 				shared_from_this(),
 				std::placeholders::_1,
 				std::placeholders::_2
@@ -47,7 +63,7 @@ namespace DankHttp
 		);
 	}
 
-	void Uploader::resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results)
+	void NuulsUploader::resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results)
 	{
 		if (ec) throw std::runtime_error(ec.message());
 		boost::asio::async_connect(
@@ -55,34 +71,34 @@ namespace DankHttp
 			results.begin(),
 			results.end(),
 			std::bind(
-				&Uploader::connectHandler,
+				&NuulsUploader::connectHandler,
 				shared_from_this(),
 				std::placeholders::_1
 			)
 		);
 	}
 
-	void Uploader::connectHandler(boost::system::error_code ec)
+	void NuulsUploader::connectHandler(boost::system::error_code ec)
 	{
 		if (ec) throw std::runtime_error(ec.message());
 		m_stream_ptr->async_handshake(
 			ssl::stream_base::client,
 			std::bind(
-				&Uploader::handshakeHandler,
+				&NuulsUploader::handshakeHandler,
 				shared_from_this(),
 				std::placeholders::_1
 			)
 		);
 	}
 
-	void Uploader::handshakeHandler(boost::system::error_code ec)
+	void NuulsUploader::handshakeHandler(boost::system::error_code ec)
 	{
 		if (ec) throw std::runtime_error(ec.message());
 		boost::beast::http::async_write(
 			*m_stream_ptr,
 			m_request,
 			std::bind(
-				&Uploader::writeHandler,
+				&NuulsUploader::writeHandler,
 				shared_from_this(),
 				std::placeholders::_1,
 				std::placeholders::_2
@@ -90,7 +106,7 @@ namespace DankHttp
 		);
 	}
 
-	void Uploader::writeHandler(boost::system::error_code ec, std::size_t bytes_transferred)
+	void NuulsUploader::writeHandler(boost::system::error_code ec, std::size_t bytes_transferred)
 	{
 		if (ec) throw std::runtime_error(ec.message());
 		boost::ignore_unused(bytes_transferred);
@@ -99,7 +115,7 @@ namespace DankHttp
 			m_buffer, 
 			m_response,
 			std::bind(
-				&Uploader::readHandler,
+				&NuulsUploader::readHandler,
 				shared_from_this(),
 				std::placeholders::_1,
 				std::placeholders::_2
@@ -107,19 +123,19 @@ namespace DankHttp
 		);
 	}
 
-	void Uploader::readHandler(boost::system::error_code ec, std::size_t bytes_transferred)
+	void NuulsUploader::readHandler(boost::system::error_code ec, std::size_t bytes_transferred)
 	{
 		if (ec) throw std::runtime_error(ec.message());
 		m_stream_ptr->async_shutdown(
 			std::bind(
-				&Uploader::shutdownHandler,
+				&NuulsUploader::shutdownHandler,
 				shared_from_this(),
 				std::placeholders::_1
 			)
 		);
 	}
 
-	void Uploader::shutdownHandler(boost::system::error_code ec)
+	void NuulsUploader::shutdownHandler(boost::system::error_code ec)
 	{
 		if (ec && ec.value() != boost::asio::ssl::error::stream_truncated) throw std::runtime_error(ec.message());
 		m_callback(std::move(m_response.body()));
