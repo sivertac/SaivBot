@@ -2,14 +2,14 @@
 
 #include "../include/LogDownloader.hpp"
 
-Log::Log(const boost::posix_time::time_period & period, std::string && data) :
+Log::Log(TimeDetail::TimePeriod period, std::string && data) :
 	m_period(period),
 	m_data(std::move(data))
 {
 	parse();
 }
 
-const boost::posix_time::time_period & Log::getPeriod() const
+TimeDetail::TimePeriod Log::getPeriod() const
 {
 	return m_period;
 }
@@ -29,7 +29,7 @@ std::size_t Log::getNumberOfLines() const
 	return m_lines.size();
 }
 
-const std::vector<boost::posix_time::ptime>& Log::getTimes() const
+const std::vector<TimeDetail::TimePoint>& Log::getTimes() const
 {
 	return m_times;
 }
@@ -68,7 +68,14 @@ void Log::parse()
 		std::string_view message = all;
 
 		m_lines.push_back(line);
-		m_times.push_back(boost::posix_time::time_from_string(std::string(time)));
+
+		if (auto r = TimeDetail::parseTimeString(time)) {
+			m_times.push_back(*r);
+		}
+		else {
+			throw std::runtime_error("Parse log time failed");
+		}
+
 		m_names.push_back(name);
 		m_messages.push_back(message);
 
@@ -80,14 +87,13 @@ void Log::parse()
 GempirUserLogDownloader::GempirUserLogDownloader(boost::asio::io_context & ioc) :
 	m_ioc(ioc),
 	m_ctx{ boost::asio::ssl::context::sslv23_client },
-	m_resolver(ioc),
-	m_period(boost::posix_time::ptime(), boost::posix_time::ptime())
+	m_resolver(ioc)
 {
 	load_root_certificates(m_ctx);
 	m_stream_ptr = std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>(m_ioc, m_ctx);
 }
 
-std::string GempirUserLogDownloader::createGempirUserTarget(const std::string_view & channel, const std::string_view & user, const boost::gregorian::greg_month & month, const boost::gregorian::greg_year & year)
+std::string GempirUserLogDownloader::createGempirUserTarget(const std::string_view & channel, const std::string_view & user, const date::month & month, const date::year & year)
 {
 	std::string target;
 
@@ -96,30 +102,30 @@ std::string GempirUserLogDownloader::createGempirUserTarget(const std::string_vi
 	target.append("/user/");
 	target.append(user);
 	target.append("/");
-	target.append(std::to_string(year));
+	target.append(std::to_string(static_cast<int>(year)));
 	target.append("/");
-	target.append(month.as_long_string());
+	target.append(TimeDetail::monthToString(month));
 
 	return target;
 }
 
-std::string GempirUserLogDownloader::createGempirChannelTarget(const std::string_view & channel, const boost::gregorian::date & date)
+std::string GempirUserLogDownloader::createGempirChannelTarget(const std::string_view & channel, const date::year_month_day & date)
 {
 	std::string target;
 
 	target.append("/channel/");
 	target.append(channel);
 	target.append("/");
-	target.append(std::to_string(date.year()));
+	target.append(std::to_string(static_cast<int>(date.year())));
 	target.append("/");
-	target.append(date.month().as_long_string());
+	target.append(TimeDetail::monthToString(date.month()));
 	target.append("/");
-	target.append(std::to_string(date.day()));
+	target.append(std::to_string(static_cast<unsigned int>(date.day())));
 
 	return target;
 }
 
-void GempirUserLogDownloader::run(CallbackType callback, const std::string & host, const std::string & port, const std::string & channel, const std::string & user, const boost::gregorian::greg_month & month, const boost::gregorian::greg_year & year, int version)
+void GempirUserLogDownloader::run(CallbackType callback, const std::string & host, const std::string & port, const std::string & channel, const std::string & user, const date::month & month, const date::year & year, int version)
 {
 	m_version = version;
 	m_host = host;
@@ -132,9 +138,11 @@ void GempirUserLogDownloader::run(CallbackType callback, const std::string & hos
 
 	//period
 	{
-		boost::gregorian::date date_begin(year, month, 1);
-		boost::gregorian::date date_end(date_begin + boost::gregorian::months(1));
-		m_period = boost::posix_time::time_period(boost::posix_time::ptime(date_begin), boost::posix_time::ptime(date_end));
+		auto date_begin = date::year_month_day(year, month, date::day(1));
+		auto date_end = date_begin + date::months(1);
+		TimeDetail::TimePoint time_begin = date::sys_days(date_begin);
+		TimeDetail::TimePoint time_end = date::sys_days(date_end);
+		m_period = TimeDetail::TimePeriod(time_begin, time_end);
 	}
 
 	if (!SSL_set_tlsext_host_name(m_stream_ptr->native_handle(), host.c_str())) {

@@ -23,6 +23,9 @@
 #include <unordered_set>
 #include <charconv>
 
+//Date
+#include <date\date.h>
+
 //boost
 #include <boost/asio.hpp>
 
@@ -398,20 +401,5 @@ std::size_t countTargetOccurrences(const std::string_view & str, const std::stri
 Caseless compare.
 */
 bool caselessCompare(const std::string_view & str1, const std::string_view & str2);
-
-/*
-Parse date from string.
-*/
-std::optional<boost::gregorian::date> parseDateString(const std::string_view & str);
-
-/*
-Parse month string input.
-*/
-std::optional<boost::gregorian::greg_month> parseMonthString(const std::string_view & str);
-
-/*
-Parse year string input.
-*/
-std::optional<boost::gregorian::greg_year> parseYearString(const std::string_view & str);
 
 #endif // !SaivBot_HEADER

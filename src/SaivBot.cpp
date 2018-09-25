@@ -346,10 +346,10 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 
 		std::function<bool(char, char)> predicate;
 
-		boost::gregorian::date current_date(boost::gregorian::day_clock::universal_day());
+		date::year_month_day current_date(date::floor<date::days>(std::chrono::system_clock::now()));
 
-		std::vector<boost::gregorian::greg_year> years;
-		std::vector<boost::gregorian::greg_month> months;
+		std::vector<date::year> years;
+		std::vector<date::month> months;
 
 		//boost::posix_time::
 
@@ -380,7 +380,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 		if (auto r = set.find<4>()) { //year list
 			auto list = r->get<0>();
 			for (auto & e : list) {
-				if (auto year = parseYearString(e)) {
+				if (auto year = TimeDetail::parseYearString(e)) {
 					years.push_back(*year);
 				}
 				else {
@@ -391,7 +391,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 		}
 		else if (auto r = set.find<5>()) { //year word
 			auto word = r->get<0>();
-			if (auto year = parseYearString(word)) {
+			if (auto year = TimeDetail::parseYearString(word)) {
 				years.push_back(*year);
 			}
 			else {
@@ -406,7 +406,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 		if (auto r = set.find<6>()) { //month list
 			auto list = r->get<0>();
 			for (auto & e : list) {
-				if (auto month = parseMonthString(e)) {
+				if (auto month = TimeDetail::parseMonthString(e)) {
 					months.push_back(*month);
 				}
 				else {
@@ -417,7 +417,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 		}
 		else if (auto r = set.find<7>()) { //month word
 			auto word = r->get<0>();
-			if (auto month = parseMonthString(word)) {
+			if (auto month = TimeDetail::parseMonthString(word)) {
 				months.push_back(*month);
 			}
 			else {
@@ -494,12 +494,10 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 
 		std::function<bool(char, char)> predicate;
 
-		boost::gregorian::date current_date(boost::gregorian::day_clock::universal_day());
+		date::year_month_day current_date(date::floor<date::days>(std::chrono::system_clock::now()));
 
-		std::vector<boost::gregorian::greg_year> years;
-		std::vector<boost::gregorian::greg_month> months;
-
-		//boost::posix_time::
+		std::vector<date::year> years;
+		std::vector<date::month> months;
 
 		if (auto r = set.find<0>()) {
 			search_str = r->get<0>();
@@ -528,7 +526,7 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 		if (auto r = set.find<4>()) { //year list
 			auto list = r->get<0>();
 			for (auto & e : list) {
-				if (auto year = parseYearString(e)) {
+				if (auto year = TimeDetail::parseYearString(e)) {
 					years.push_back(*year);
 				}
 				else {
@@ -539,7 +537,7 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 		}
 		else if (auto r = set.find<5>()) { //year word
 			auto word = r->get<0>();
-			if (auto year = parseYearString(word)) {
+			if (auto year = TimeDetail::parseYearString(word)) {
 				years.push_back(*year);
 			}
 			else {
@@ -554,7 +552,7 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 		if (auto r = set.find<6>()) { //month list
 			auto list = r->get<0>();
 			for (auto & e : list) {
-				if (auto month = parseMonthString(e)) {
+				if (auto month = TimeDetail::parseMonthString(e)) {
 					months.push_back(*month);
 				}
 				else {
@@ -565,7 +563,7 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 		}
 		else if (auto r = set.find<7>()) { //month word
 			auto word = r->get<0>();
-			if (auto month = parseMonthString(word)) {
+			if (auto month = TimeDetail::parseMonthString(word)) {
 				months.push_back(*month);
 			}
 			else {
@@ -757,6 +755,7 @@ void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 						auto & time = l.getTimes()[i];
 						auto & msg = l.getMessages()[i];
 						if (std::search(msg.begin(), msg.end(), searcher) != msg.end()) {
+							using namespace date;
 							lines_found_stream << time << ": " << msg << "\n";
 							++count;
 						}
@@ -1031,42 +1030,4 @@ bool caselessCompare(const std::string_view & str1, const std::string_view & str
 		}
 	}
 	return true;
-}
-
-std::optional<boost::gregorian::date> parseDateString(const std::string_view & str)
-{
-	try {
-		boost::gregorian::date date = boost::gregorian::from_simple_string(std::string(str));
-		return date;
-	}
-	catch (std::exception&) {
-		return std::nullopt;
-	}
-}
-
-std::optional<boost::gregorian::greg_month> parseMonthString(const std::string_view & str)
-{
-	try {
-		boost::gregorian::greg_month month(boost::date_time::month_str_to_ushort<boost::gregorian::greg_month>(std::string(str)));
-		return month;
-	}
-	catch (std::exception&) {
-		return std::nullopt;
-	}
-}
-
-std::optional<boost::gregorian::greg_year> parseYearString(const std::string_view & str)
-{
-	try {
-		unsigned short n;
-		auto ret = std::from_chars(str.data(), str.data() + str.size(), n);
-		if (ret.ec == std::errc::invalid_argument) {
-			return std::nullopt;
-		}
-		boost::gregorian::greg_year year(n);
-		return year;
-	}
-	catch (std::exception) {
-		return std::nullopt;
-	}
 }
