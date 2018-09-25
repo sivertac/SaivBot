@@ -295,7 +295,8 @@ private:
 			std::size_t, 
 			std::string,
 			std::function<bool(char, char)>,
-			IRCMessage, 
+			IRCMessage,
+			TimeDetail::TimePeriod,
 			std::vector<Log>
 		>>;
 
@@ -314,6 +315,7 @@ private:
 			std::string,
 			std::function<bool(char, char)>,
 			IRCMessage,
+			TimeDetail::TimePeriod,
 			std::vector<Log>
 		>>;
 

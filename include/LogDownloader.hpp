@@ -98,6 +98,44 @@ namespace TimeDetail
 		}
 	}
 
+	inline std::optional<TimePoint> parseTimePointString(const std::string_view & view)
+	{
+		std::stringstream ss;
+		ss << view;
+		std::chrono::system_clock::time_point point;
+		if (!(ss >> date::parse("%Y-%m-%d-%H-%M-%S", point)).fail()) {
+			return point;
+		}
+		ss = std::stringstream();
+		ss << view;
+		if (!(ss >> date::parse("%Y-%m-%d-%H-%M", point)).fail()) {
+			return point;
+		}
+		ss = std::stringstream();
+		ss << view;
+		if (!(ss >> date::parse("%Y-%m-%d-%H", point)).fail()) {
+			return point;
+		}
+		ss = std::stringstream();
+		ss << view;
+		if (!(ss >> date::parse("%Y-%m-%d", point)).fail()) {
+			return point;
+		}
+		ss = std::stringstream();
+		ss << view;
+		date::year_month year_month;
+		if (!(ss >> date::parse("%Y-%m", year_month)).fail()) {
+			return date::sys_days(year_month / 1);
+		}
+		ss = std::stringstream();
+		ss << view;
+		date::year year;
+		if (!(ss >> date::parse("%Y", year)).fail()) {
+			return date::sys_days(year / 1 / 1);
+		}
+		return std::nullopt;
+	}
+
 	class TimePeriod
 	{
 	public:
@@ -106,7 +144,7 @@ namespace TimeDetail
 			m_begin(begin),
 			m_end(end)
 		{
-			assert(m_begin <= m_end);
+			assert(begin <= end);
 		}
 
 		bool isInside(TimePoint point) const
@@ -132,6 +170,28 @@ namespace TimeDetail
 		TimePoint m_begin;
 		TimePoint m_end;
 	};
+
+	inline std::optional<TimePeriod> parseTimePeriod(const std::string_view & begin, const std::string_view & end)
+	{
+		TimePoint begin_time;
+		TimePoint end_time;
+		if (auto r = parseTimePointString(begin)) {
+			begin_time = *r;
+		}
+		else {
+			return std::nullopt;
+		}
+		if (auto r = parseTimePointString(end)) {
+			end_time = *r;
+		}
+		else {
+			return std::nullopt;
+		}
+		if (begin_time > end_time) {
+			return std::nullopt;
+		}
+		return TimePeriod(begin_time, end_time);
+	}
 };
 
 class Log

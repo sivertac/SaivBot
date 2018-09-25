@@ -331,10 +331,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 			Option<WordType>(m_command_containers[Commands::count_command].m_command),
 			Option<WordType>("-channel"),
 			Option<WordType>("-user"),
-			Option<ListType>("-year"),
-			Option<WordType>("-year"),
-			Option<ListType>("-month"),
-			Option<WordType>("-month"),
+			Option<WordType, WordType>("-period"),
 			Option<>("-caseless")
 		);
 
@@ -348,15 +345,15 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 
 		date::year_month_day current_date(date::floor<date::days>(std::chrono::system_clock::now()));
 
-		std::vector<date::year> years;
-		std::vector<date::month> months;
+		TimeDetail::TimePeriod period(
+			TimeDetail::TimePoint(date::sys_days(current_date.year() / current_date.month() / 1)),
+			TimeDetail::TimePoint(date::sys_days((current_date.year() / current_date.month() / 1) + date::months(1)))
+		);
 
-		//boost::posix_time::
-
-		if (auto r = set.find<0>()) {
+		if (auto r = set.find<0>()) { //target string
 			search_str = r->get<0>();
 		}
-		else if (auto r = set.find<1>()) {
+		else if (auto r = set.find<1>()) { //target word
 			search_str = r->get<0>();
 		}
 		else {
@@ -377,63 +374,38 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 			user = msg.getNick();
 		}
 
-		if (auto r = set.find<4>()) { //year list
-			auto list = r->get<0>();
-			for (auto & e : list) {
-				if (auto year = TimeDetail::parseYearString(e)) {
-					years.push_back(*year);
-				}
-				else {
-					sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid year. NaM"));
-					return;
-				}
-			}
-		}
-		else if (auto r = set.find<5>()) { //year word
-			auto word = r->get<0>();
-			if (auto year = TimeDetail::parseYearString(word)) {
-				years.push_back(*year);
+		if (auto r = set.find<4>()) { //period
+			if (auto r2 = TimeDetail::parseTimePeriod(r->get<0>(), r->get<1>())) {
+				period = *r2;
 			}
 			else {
-				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid year. NaM"));
+				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
 				return;
 			}
 		}
-		else {
-			years.push_back(current_date.year());
-		}
 
-		if (auto r = set.find<6>()) { //month list
-			auto list = r->get<0>();
-			for (auto & e : list) {
-				if (auto month = TimeDetail::parseMonthString(e)) {
-					months.push_back(*month);
-				}
-				else {
-					sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid month. NaM"));
-					return;
-				}
-			}
-		}
-		else if (auto r = set.find<7>()) { //month word
-			auto word = r->get<0>();
-			if (auto month = TimeDetail::parseMonthString(word)) {
-				months.push_back(*month);
-			}
-			else {
-				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid month. NaM"));
-				return;
-			}
-		}
-		else {
-			months.push_back(current_date.month());
-		}
-
-		if (auto r = set.find<8>()) {
+		if (auto r = set.find<5>()) {
 			predicate = [](char l, char r) {return std::tolower(l) == std::tolower(r); };
 		}
 		else {
 			predicate = std::equal_to<char>();
+		}
+
+		//gather months and years
+		std::vector<date::year_month> year_months;
+		{
+			date::year_month_day ymd = date::floor<date::days>(period.begin());
+			date::year_month begin_ym(ymd.year(), ymd.month());
+			ymd = date::floor<date::days>(period.end());
+			date::year_month end_ym(ymd.year(), ymd.month());
+			while (begin_ym < end_ym) {
+				year_months.push_back(begin_ym);
+				begin_ym += date::months(1);
+			}
+			if (year_months.empty()) {
+				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
+				return;
+			}
 		}
 
 		if (channel[0] == '#') channel.erase(0, 1);
@@ -442,28 +414,27 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 		const std::string port("443");
 
 		CountCallbackSharedPtr callback_ptr = std::make_shared<CountCallbackSharedPtr::element_type>();
-		std::get<1>(*callback_ptr) = years.size() * months.size();
+		std::get<1>(*callback_ptr) = year_months.size();
 		std::get<2>(*callback_ptr) = std::move(search_str);
 		std::get<3>(*callback_ptr) = predicate;
 		std::get<4>(*callback_ptr) = msg;
+		std::get<5>(*callback_ptr) = period;
 		
-		for (auto & y : years) {
-			for (auto & m : months) {
-				std::make_shared<GempirUserLogDownloader>(m_ioc)->run(
-					std::bind(
-						&SaivBot::countCommandCallback,
-						this,
-						std::placeholders::_1,
-						callback_ptr
-					),
-					host,
-					port,
-					channel,
-					user,
-					m,
-					y
-				);
-			}
+		for (auto & ym : year_months) {
+			std::make_shared<GempirUserLogDownloader>(m_ioc)->run(
+				std::bind(
+					&SaivBot::countCommandCallback,
+					this,
+					std::placeholders::_1,
+					callback_ptr
+				),
+				host,
+				port,
+				channel,
+				user,
+				ym.month(),
+				ym.year()
+			);
 		}
 	}
 }
@@ -479,10 +450,7 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 			Option<WordType>(m_command_containers[Commands::find_command].m_command),
 			Option<WordType>("-channel"),
 			Option<WordType>("-user"),
-			Option<ListType>("-year"),
-			Option<WordType>("-year"),
-			Option<ListType>("-month"),
-			Option<WordType>("-month"),
+			Option<WordType, WordType>("-period"),
 			Option<>("-caseless")
 		);
 
@@ -496,13 +464,15 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 
 		date::year_month_day current_date(date::floor<date::days>(std::chrono::system_clock::now()));
 
-		std::vector<date::year> years;
-		std::vector<date::month> months;
+		TimeDetail::TimePeriod period(
+			TimeDetail::TimePoint(date::sys_days(current_date.year() / current_date.month() / 1)),
+			TimeDetail::TimePoint(date::sys_days((current_date.year() / current_date.month() / 1) + date::months(1)))
+		);
 
-		if (auto r = set.find<0>()) {
+		if (auto r = set.find<0>()) { //target string
 			search_str = r->get<0>();
 		}
-		else if (auto r = set.find<1>()) {
+		else if (auto r = set.find<1>()) { //target word
 			search_str = r->get<0>();
 		}
 		else {
@@ -523,63 +493,38 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 			user = msg.getNick();
 		}
 
-		if (auto r = set.find<4>()) { //year list
-			auto list = r->get<0>();
-			for (auto & e : list) {
-				if (auto year = TimeDetail::parseYearString(e)) {
-					years.push_back(*year);
-				}
-				else {
-					sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid year. NaM"));
-					return;
-				}
-			}
-		}
-		else if (auto r = set.find<5>()) { //year word
-			auto word = r->get<0>();
-			if (auto year = TimeDetail::parseYearString(word)) {
-				years.push_back(*year);
+		if (auto r = set.find<4>()) { //period
+			if (auto r2 = TimeDetail::parseTimePeriod(r->get<0>(), r->get<1>())) {
+				period = *r2;
 			}
 			else {
-				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid year. NaM"));
+				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
 				return;
 			}
 		}
-		else {
-			years.push_back(current_date.year());
-		}
 
-		if (auto r = set.find<6>()) { //month list
-			auto list = r->get<0>();
-			for (auto & e : list) {
-				if (auto month = TimeDetail::parseMonthString(e)) {
-					months.push_back(*month);
-				}
-				else {
-					sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid month. NaM"));
-					return;
-				}
-			}
-		}
-		else if (auto r = set.find<7>()) { //month word
-			auto word = r->get<0>();
-			if (auto month = TimeDetail::parseMonthString(word)) {
-				months.push_back(*month);
-			}
-			else {
-				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid month. NaM"));
-				return;
-			}
-		}
-		else {
-			months.push_back(current_date.month());
-		}
-
-		if (auto r = set.find<8>()) {
+		if (auto r = set.find<5>()) {
 			predicate = [](char l, char r) {return std::tolower(l) == std::tolower(r); };
 		}
 		else {
 			predicate = std::equal_to<char>();
+		}
+
+		//gather months and years
+		std::vector<date::year_month> year_months;
+		{
+			date::year_month_day ymd = date::floor<date::days>(period.begin());
+			date::year_month begin_ym(ymd.year(), ymd.month());
+			ymd = date::floor<date::days>(period.end());
+			date::year_month end_ym(ymd.year(), ymd.month());
+			while (begin_ym < end_ym) {
+				year_months.push_back(begin_ym);
+				begin_ym += date::months(1);
+			}
+			if (year_months.empty()) {
+				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
+				return;
+			}
 		}
 
 		if (channel[0] == '#') channel.erase(0, 1);
@@ -588,30 +533,28 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 		const std::string port("443");
 
 		FindCallbackSharedPtr callback_ptr = std::make_shared<FindCallbackSharedPtr::element_type>();
-		std::get<1>(*callback_ptr) = years.size() * months.size();
+		std::get<1>(*callback_ptr) = year_months.size();
 		std::get<2>(*callback_ptr) = std::move(search_str);
 		std::get<3>(*callback_ptr) = predicate;
 		std::get<4>(*callback_ptr) = msg;
+		std::get<5>(*callback_ptr) = period;
 
-		for (auto & y : years) {
-			for (auto & m : months) {
-				std::make_shared<GempirUserLogDownloader>(m_ioc)->run(
-					std::bind(
-						&SaivBot::findCommandCallback,
-						this,
-						std::placeholders::_1,
-						callback_ptr
-					),
-					host,
-					port,
-					channel,
-					user,
-					m,
-					y
-				);
-			}
+		for (auto & ym : year_months) {
+			std::make_shared<GempirUserLogDownloader>(m_ioc)->run(
+				std::bind(
+					&SaivBot::findCommandCallback,
+					this,
+					std::placeholders::_1,
+					callback_ptr
+				),
+				host,
+				port,
+				channel,
+				user,
+				ym.month(),
+				ym.year()
+			);
 		}
-
 	}
 }
 
@@ -701,7 +644,8 @@ void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
 	std::string & search_str = std::get<2>(*ptr);
 	auto predicate = std::get<3>(*ptr);
 	const IRCMessage & msg = std::get<4>(*ptr);
-	std::vector<Log> & log_container = std::get<5>(*ptr);
+	const TimeDetail::TimePeriod & period = std::get<5>(*ptr);
+	std::vector<Log> & log_container = std::get<6>(*ptr);
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		--mutex_count;
@@ -713,17 +657,20 @@ void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
 			std::size_t count = 0;
 			for (auto & l : log_container) {
 				if (l.getData() == "{\"message\":\"Not Found\"}") {
+					std::cerr << "FAILED\n";
 					continue;
 				}
 				else {
 					for (std::size_t i = 0; i < l.getNumberOfLines(); ++i) {
-						auto & msg = l.getMessages()[i];
-						count += countTargetOccurrences(msg.begin(), msg.end(), searcher);	
+						if (period.isInside(l.getTimes()[i])) {
+							auto & msg = l.getMessages()[i];
+							count += countTargetOccurrences(msg.begin(), msg.end(), searcher);
+						}
 					}
 				}
 			}
 			std::stringstream reply;
-			reply << msg.getNick() << ", count: " << count << ", logs: " << log_container.size();
+			reply << msg.getNick() << ", count: " << count;
 			sendPRIVMSG(msg.getParams()[0], reply.str());
 		}
 	}
@@ -736,8 +683,8 @@ void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 	std::string & search_str = std::get<2>(*ptr);
 	auto predicate = std::get<3>(*ptr);
 	const IRCMessage & msg = std::get<4>(*ptr);
-	std::vector<Log> & log_container = std::get<5>(*ptr);
-
+	const TimeDetail::TimePeriod & period = std::get<5>(*ptr);
+	std::vector<Log> & log_container = std::get<6>(*ptr);
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		--mutex_count;
@@ -753,11 +700,13 @@ void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 				else {
 					for (std::size_t i = 0; i < l.getNumberOfLines(); ++i) {
 						auto & time = l.getTimes()[i];
-						auto & msg = l.getMessages()[i];
-						if (std::search(msg.begin(), msg.end(), searcher) != msg.end()) {
-							using namespace date;
-							lines_found_stream << time << ": " << msg << "\n";
-							++count;
+						if (period.isInside(time)) {
+							auto & msg = l.getMessages()[i];
+							if (std::search(msg.begin(), msg.end(), searcher) != msg.end()) {
+								using namespace date;
+								lines_found_stream << time << ": " << msg << "\n";
+								++count;
+							}
 						}
 					}
 				}
