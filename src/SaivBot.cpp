@@ -140,7 +140,6 @@ void SaivBot::sendIRC(const std::string & msg)
 
 		msg_ptr->append(cr);
 
-
 		auto now = std::chrono::system_clock::now();
 
 		if (m_next_message_time < now) {
@@ -219,7 +218,7 @@ void SaivBot::consumeMsgBuffer()
 			if (irc_msg.getCommand() == "PING") {
 				sendIRC("PONG");
 			}
-			if (caselessCompare(irc_msg.getNick(), m_nick)) {
+			else if (caselessCompare(irc_msg.getNick(), m_nick)) {
 				if (irc_msg.getCommand() == "JOIN") {
 					std::string channel(irc_msg.getParams()[0]);
 					if (m_channels.find(channel) == m_channels.end()) {
@@ -235,6 +234,7 @@ void SaivBot::consumeMsgBuffer()
 					}
 				}
 			}
+			std::cout << irc_msg.getData() << "\n";
 		}
 		else {
 			//xD
@@ -269,15 +269,12 @@ void SaivBot::consumeMsgBuffer()
 					}
 				}
 			}
-		}
-
-		std::cout << irc_msg.getData() << "\n";
-
-		{
-			std::string channel(irc_msg.getParams()[0]);
-			auto it = m_channels.find(channel);
-			if (it != m_channels.end()) {
-				std::get<0>(it->second)->push(std::move(irc_msg));
+			{
+				std::string channel(irc_msg.getParams()[0]);
+				auto it = m_channels.find(channel);
+				if (it != m_channels.end()) {
+					std::get<0>(it->second)->push(std::move(irc_msg));
+				}
 			}
 		}
 		m_msg_pre_buffer.pop_front();
@@ -417,20 +414,10 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 		}
 
 		//gather months and years
-		std::vector<date::year_month> year_months;
-		{
-			date::year_month_day ymd = date::floor<date::days>(period.begin());
-			date::year_month begin_ym(ymd.year(), ymd.month());
-			ymd = date::floor<date::days>(period.end());
-			date::year_month end_ym(ymd.year(), ymd.month());
-			while (begin_ym < end_ym) {
-				year_months.push_back(begin_ym);
-				begin_ym += date::months(1);
-			}
-			if (year_months.empty()) {
-				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
-				return;
-			}
+		std::vector<date::year_month> year_months = periodToYearMonths(period);
+		if (year_months.empty()) {
+			sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
+			return;
 		}
 
 		if (channel[0] == '#') channel.erase(0, 1);
@@ -537,20 +524,10 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 		}
 
 		//gather months and years
-		std::vector<date::year_month> year_months;
-		{
-			date::year_month_day ymd = date::floor<date::days>(period.begin());
-			date::year_month begin_ym(ymd.year(), ymd.month());
-			ymd = date::floor<date::days>(period.end());
-			date::year_month end_ym(ymd.year(), ymd.month());
-			while (begin_ym < end_ym) {
-				year_months.push_back(begin_ym);
-				begin_ym += date::months(1);
-			}
-			if (year_months.empty()) {
-				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
-				return;
-			}
+		std::vector<date::year_month> year_months = periodToYearMonths(period);
+		if (year_months.empty()) {
+			sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
+			return;
 		}
 
 		if (channel[0] == '#') channel.erase(0, 1);
@@ -586,60 +563,50 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 
 void SaivBot::clipCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
-	using namespace OptionParser;
-	OptionParser::Parser parser(Option<NumberType<std::size_t>>("-lines"));
-	auto set = parser.parse(input_line);
-	
-	std::string channel(msg.getParams()[0]);
-	auto it = m_channels.find(channel);
-	if (it != m_channels.end()) {
-		IRCMessageBuffer & msg_buffer = *std::get<0>(it->second);
+	if (isWhitelisted(msg.getNick())) {
+		using namespace OptionParser;
+		OptionParser::Parser parser(Option<NumberType<std::size_t>>("-lines_from_now"));
+		auto set = parser.parse(input_line);
 
-		if (auto r = set.find<0>()) {
-			std::size_t line_count = r->get<0>();
-			if (line_count > 0) {
-				msg_buffer.accessData(
-					[&](const IRCMessageBuffer::Container & queue)
-				{
-					std::vector<std::reference_wrapper<const IRCMessage>> temp;
-					temp.reserve(line_count);
-					for (std::size_t i = 0; i < line_count; ++i) {
-						if (queue.size() > i) {
-							const IRCMessage & irc_msg = *(queue.crbegin() + i);
-							temp.push_back(irc_msg);
+		std::string channel(msg.getParams()[0]);
+		auto it = m_channels.find(channel);
+		if (it != m_channels.end()) {
+			IRCMessageBuffer & msg_buffer = *std::get<0>(it->second);
+
+			if (auto r = set.find<0>()) {
+				std::size_t line_count = r->get<0>();
+				if (line_count > 0) {
+					msg_buffer.accessLinesFromNow(
+						line_count,
+						[&](const IRCMessageBuffer::LinesFromNowVecType & lines)
+					{
+						std::stringstream ss;
+						for (const IRCMessage & irc_msg : lines) {
+							using namespace date;
+							ss << irc_msg.getTime() << " " << irc_msg.getNick() << ": " << irc_msg.getBody() << "\n";
 						}
-						else {
-							break;
-						}
+						std::make_shared<DankHttp::NuulsUploader>(m_ioc)->run(
+							std::bind(
+								&SaivBot::clipCommandCallback,
+								this,
+								std::placeholders::_1,
+								std::make_shared<IRCMessage>(msg)
+							),
+							ss.str(),
+							"i.nuuls.com",
+							"443",
+							"/upload"
+						);
 					}
-					std::stringstream ss;
-					for (auto it = temp.crbegin(); it != temp.crend(); ++it) {
-						const IRCMessage & irc_msg = *it;
-						using namespace date;
-						ss << irc_msg.getTime() << " " << irc_msg.getNick() <<  ": " << irc_msg.getBody() << "\n";
-					}
-					
-					std::make_shared<DankHttp::NuulsUploader>(m_ioc)->run(
-						std::bind(
-							&SaivBot::clipCommandCallback,
-							this,
-							std::placeholders::_1,
-							std::make_shared<IRCMessage>(msg)
-						),
-						ss.str(),
-						"i.nuuls.com",
-						"443",
-						"/upload"
 					);
 				}
-				);
 			}
-		}
-		else {
-			std::stringstream reply;
-			reply << msg.getNick();
-			reply << ", " << "Invalid params NaM";
-			sendPRIVMSG(msg.getParams()[0], reply.str());
+			else {
+				std::stringstream reply;
+				reply << msg.getNick();
+				reply << ", " << "Invalid params NaM";
+				sendPRIVMSG(msg.getParams()[0], reply.str());
+			}
 		}
 	}
 }
@@ -848,6 +815,20 @@ void SaivBot::nuulsServerReply(const std::string & str, const IRCMessage & msg)
 	std::stringstream reply;
 	reply << msg.getNick() << ", " << str;
 	sendPRIVMSG(msg.getParams()[0], reply.str());
+}
+
+std::vector<date::year_month> SaivBot::periodToYearMonths(const TimeDetail::TimePeriod & period)
+{
+	std::vector<date::year_month> year_months;	
+	date::year_month_day ymd = date::floor<date::days>(period.begin());
+	date::year_month begin_ym(ymd.year(), ymd.month());
+	ymd = date::floor<date::days>(period.end());
+	date::year_month end_ym(ymd.year(), ymd.month());
+	while (begin_ym < end_ym) {
+		year_months.push_back(begin_ym);
+		begin_ym += date::months(1);
+	}
+	return year_months;
 }
 
 std::size_t countTargetOccurrences(const std::string_view & str, const std::string_view & target)

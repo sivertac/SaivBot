@@ -22,7 +22,16 @@ public:
 
 	void push(IRCMessage && msg);
 
-	void accessData(std::function<void(const Container&)> func);
+	/*
+	*/
+	using AccessDataFunc = std::function<void(const Container&)>;
+	void accessData(AccessDataFunc func);
+
+	/*
+	*/
+	using LinesFromNowVecType = std::vector<std::reference_wrapper<const IRCMessage>>;
+	using LinesFromNowFuncType = std::function<void(const LinesFromNowVecType&)>;
+	void accessLinesFromNow(std::size_t line_count, LinesFromNowFuncType func);
 private:
 	std::mutex m_mutex;
 	std::size_t m_capacity;

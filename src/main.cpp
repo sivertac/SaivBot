@@ -58,3 +58,26 @@ int main(int argc, char** argv)
 }
 
 #endif
+
+#if 0
+
+#include <iostream>
+#include <chrono>
+#include "../include/IRCMessage.hpp"
+
+int main(int argc, char** argv)
+{
+
+	std::string str1("PING :tmi.twitch.tv");
+
+	IRCMessage irc_msg1(std::chrono::system_clock::now(), std::move(str1));
+
+
+	irc_msg1.print(std::cout);
+
+
+
+	return 0;
+}
+
+#endif

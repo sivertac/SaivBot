@@ -23,6 +23,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <charconv>
+#include <regex>
 
 //Date
 #include <date/date.h>
@@ -206,12 +207,12 @@ private:
 		count_command,
 		//search_command,
 		find_command,
+		//regexfind_command,
+		clip_command,
 		promote_command,
 		demote_command,
-		clip_command,
 		join_command,
 		part_command,
-		//decide_command,
 		NUMBER_OF_COMMANDS
 	};
 
@@ -223,6 +224,7 @@ private:
 	void countCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	//void searchCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void findCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	//void regexfindCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void clipCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void promoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void demoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
@@ -236,6 +238,7 @@ private:
 		CommandContainer("count", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Count the occurrences of target in logs.", bindCommand(&SaivBot::countCommandFunc)),
 		//CommandContainer("search", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Search for target in logs", bindCommand(&SaivBot::searchCommandFunc)),
 		CommandContainer("find", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Find all lines containing target in logs.", bindCommand(&SaivBot::findCommandFunc)),
+		//CommandContainer("regexfind", "<regex> [-flag1 [param ...] -flag2 [param ...] ...]", "Find regex matches in logs.", bindCommand(&SaivBot::regexfindCommandFunc)),
 		CommandContainer("clip", "[-flag1 [param ...] -flag2 [param ...] ...]", "Capture a snapshot of chat.", bindCommand(&SaivBot::clipCommandFunc)),
 		CommandContainer("promote", "<user>", "Whitelist user.", bindCommand(&SaivBot::promoteCommandFunc)),
 		CommandContainer("demote", "<user>", "Remove user from whitelist.", bindCommand(&SaivBot::demoteCommandFunc)),
@@ -292,7 +295,13 @@ private:
 		ClipCallbackSharedPtr ptr
 	);
 
+	/*
+	*/
 	void nuulsServerReply(const std::string & str, const IRCMessage & msg);
+
+	/*
+	*/
+	std::vector<date::year_month> periodToYearMonths(const TimeDetail::TimePeriod & period);
 };
 
 /*
