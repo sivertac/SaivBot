@@ -26,180 +26,55 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/error.hpp>
 #include <boost/asio/ssl/stream.hpp>
-//#include <boost/date_time.hpp>
 
 //TLS
 #include "root_certificates.hpp"
 
-namespace TimeDetail
-{
-	using TimePoint = std::chrono::time_point<std::chrono::system_clock>;
-	
-	inline std::string monthToString(date::month month)
-	{
-		std::stringstream ss;
-		ss << date::format("%B", month);
-		return ss.str();
-	}
-
-	inline std::optional<TimePoint> parseTimeString(const std::string_view & view)
-	{
-		std::stringstream ss;
-		ss << view;
-		TimePoint point;
-		ss >> date::parse("%F %T", point);
-		if (ss.fail()) {
-			return std::nullopt;
-		}
-		else {
-			return point;
-		}
-	}
-
-	inline std::optional<date::year_month_day> parseDateString(const std::string_view & view)
-	{
-		std::stringstream ss;
-		ss << view;
-		date::year_month_day point;
-		ss >> date::parse("%F", point);
-		if (ss.fail()) {
-			return std::nullopt;
-		}
-		else {
-			return point;
-		}
-	}
-
-	inline std::optional<date::month> parseMonthString(const std::string_view & view)
-	{
-		std::stringstream ss;
-		ss << view;
-		date::month point;
-		ss >> date::parse("%B", point);
-		if (ss.fail()) {
-			return std::nullopt;
-		}
-		else {
-			return point;
-		}
-	}
-
-	inline std::optional<date::year> parseYearString(const std::string_view & view)
-	{
-		std::stringstream ss;
-		ss << view;
-		date::year point;
-		ss >> date::parse("%g", point);
-		if (ss.fail()) {
-			return std::nullopt;
-		}
-		else {
-			return point;
-		}
-	}
-
-	inline std::optional<TimePoint> parseTimePointString(const std::string_view & view)
-	{
-		std::stringstream ss;
-		ss << view;
-		std::chrono::system_clock::time_point point;
-		if (!(ss >> date::parse("%Y-%m-%d-%H-%M-%S", point)).fail()) {
-			return point;
-		}
-		ss = std::stringstream();
-		ss << view;
-		if (!(ss >> date::parse("%Y-%m-%d-%H-%M", point)).fail()) {
-			return point;
-		}
-		ss = std::stringstream();
-		ss << view;
-		if (!(ss >> date::parse("%Y-%m-%d-%H", point)).fail()) {
-			return point;
-		}
-		ss = std::stringstream();
-		ss << view;
-		if (!(ss >> date::parse("%Y-%m-%d", point)).fail()) {
-			return point;
-		}
-		ss = std::stringstream();
-		ss << view;
-		date::year_month year_month;
-		if (!(ss >> date::parse("%Y-%m", year_month)).fail()) {
-			return date::sys_days(year_month / 1);
-		}
-		ss = std::stringstream();
-		ss << view;
-		date::year year;
-		if (!(ss >> date::parse("%Y", year)).fail()) {
-			return date::sys_days(year / 1 / 1);
-		}
-		return std::nullopt;
-	}
-
-	class TimePeriod
-	{
-	public:
-		TimePeriod() = default;
-		TimePeriod(TimePoint begin, TimePoint end) :
-			m_begin(begin),
-			m_end(end)
-		{
-			assert(begin <= end);
-		}
-
-		bool isInside(TimePoint point) const
-		{
-			if (point >= m_begin && point < m_end) {
-				return true;
-			}
-			else {
-				return false;
-			}
-		}
-
-		TimePoint begin() const
-		{
-			return m_begin;
-		}
-
-		TimePoint end() const
-		{
-			return m_end;
-		}
-	private:
-		TimePoint m_begin;
-		TimePoint m_end;
-	};
-
-	inline std::optional<TimePeriod> parseTimePeriod(const std::string_view & begin, const std::string_view & end)
-	{
-		TimePoint begin_time;
-		TimePoint end_time;
-		if (auto r = parseTimePointString(begin)) {
-			begin_time = *r;
-		}
-		else {
-			return std::nullopt;
-		}
-		if (auto r = parseTimePointString(end)) {
-			end_time = *r;
-		}
-		else {
-			return std::nullopt;
-		}
-		if (begin_time > end_time) {
-			return std::nullopt;
-		}
-		return TimePeriod(begin_time, end_time);
-	}
-};
+//local
+#include "TimeDetail.hpp"
 
 class Log
 {
 public:
+	class LineView
+	{
+	public:
+		const std::string_view & getLineView() const
+		{
+			return m_line_view;
+		}
+		const std::string_view & getTimeView() const
+		{
+			return m_time_view;
+		}
+		const TimeDetail::TimePoint & getTime() const
+		{
+			return m_time;
+		}
+		const std::string_view & getNameView() const
+		{
+			return m_name_view;
+		}
+		const std::string_view & getMessageView() const
+		{
+			return m_message_view;
+		}
+	private:
+		friend Log;
+		std::string_view m_line_view;
+		std::string_view m_time_view;
+		TimeDetail::TimePoint m_time;
+		std::string_view m_name_view;
+		std::string_view m_message_view;
+	};
+
 	/*
 	*/
 	Log(TimeDetail::TimePeriod period, std::string && data);
+
+	/*
+	*/
+	bool isValid() const;
 
 	/*
 	*/
@@ -211,36 +86,23 @@ public:
 
 	/*
 	*/
-	const std::vector<std::string_view> & getLines() const;
+	const std::vector<LineView> & getLines() const;
 
 	/*
 	*/
 	std::size_t getNumberOfLines() const;
 
-	/*
-	*/
-	const std::vector<TimeDetail::TimePoint> & getTimes() const;
-
-	/*
-	*/
-	const std::vector<std::string_view> & getNames() const;
-
-	/*
-	*/
-	const std::vector<std::string_view> & getMessages() const;
 private:
 	/*
 	*/
 	void parse();
 
+	bool m_valid = false;
 	std::string m_data;
 
 	const TimeDetail::TimePeriod m_period;
 
-	std::vector<std::string_view> m_lines;
-	std::vector<TimeDetail::TimePoint> m_times;
-	std::vector<std::string_view> m_names;
-	std::vector<std::string_view> m_messages;
+	std::vector<LineView> m_lines;
 };
 
 class GempirUserLogDownloader : public std::enable_shared_from_this<GempirUserLogDownloader>

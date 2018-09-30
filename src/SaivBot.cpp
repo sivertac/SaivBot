@@ -206,35 +206,51 @@ void SaivBot::parseBuffer()
 		if (n == m_buffer.npos) return;
 		std::string line = m_buffer.substr(0, n);
 		m_buffer.erase(m_buffer.begin(), m_buffer.begin() + n + cr.size());
-		m_msg_buffer.emplace_back(std::move(line));
+		m_msg_pre_buffer.emplace_back(std::chrono::system_clock::now(), std::move(line));
 	}
 }
 
 
 void SaivBot::consumeMsgBuffer()
 {
-	while (!m_msg_buffer.empty()) {
-		auto & msg = m_msg_buffer.front();
-		if (msg.getCommand() != "PRIVMSG") {
-			if (msg.getCommand() == "PING") {
+	while (!m_msg_pre_buffer.empty()) {
+		auto & irc_msg = m_msg_pre_buffer.front();
+		if (irc_msg.getCommand() != "PRIVMSG") {
+			if (irc_msg.getCommand() == "PING") {
 				sendIRC("PONG");
+			}
+			if (caselessCompare(irc_msg.getNick(), m_nick)) {
+				if (irc_msg.getCommand() == "JOIN") {
+					std::string channel(irc_msg.getParams()[0]);
+					if (m_channels.find(channel) == m_channels.end()) {
+						ChannelData data = std::make_tuple(std::make_unique<IRCMessageBuffer>(m_message_buffer_size));
+						m_channels.emplace(std::move(channel), std::move(data));
+					}
+				}
+				else if (irc_msg.getCommand() == "PART") {
+					std::string channel(irc_msg.getParams()[0]);
+					auto it = m_channels.find(channel);
+					if (it != m_channels.end()) {
+						m_channels.erase(it);
+					}
+				}
 			}
 		}
 		else {
 			//xD
-			if (isInPrefixCaseless(msg.getBody(), std::string_view("!xd"))) {
-				sendPRIVMSG(msg.getParams()[0], "xD");
+			if (isInPrefixCaseless(irc_msg.getBody(), std::string_view("!xd"))) {
+				sendPRIVMSG(irc_msg.getParams()[0], "xD");
 			}
-			else if (isInPrefixCaseless(msg.getBody(), std::string_view("!NaM"))) {
-				sendPRIVMSG(msg.getParams()[0], "NaM");
+			else if (isInPrefixCaseless(irc_msg.getBody(), std::string_view("!NaM"))) {
+				sendPRIVMSG(irc_msg.getParams()[0], "NaM");
 			}
-			else if (msg.getBody().find("A multi-raffle has begun") != msg.getBody().npos) {
-				sendPRIVMSG(msg.getParams()[0], "!join");
+			else if (irc_msg.getBody().find("A multi-raffle has begun") != irc_msg.getBody().npos) {
+				sendPRIVMSG(irc_msg.getParams()[0], "!join");
 			}
 			
 			//commands
 			{
-				std::string_view local_view = msg.getBody();
+				std::string_view local_view = irc_msg.getBody();
 				
 				if (auto first_word = OptionParser::extractFirstWordDestructive(local_view)) {
 					if (caselessCompare(*first_word, m_nick)) {
@@ -247,15 +263,24 @@ void SaivBot::consumeMsgBuffer()
 								[&](auto & cc) {return cc.m_command == second_word; }
 							);
 							if (command_it != m_command_containers.end()) {
-								command_it->m_func(msg, local_view);
+								command_it->m_func(irc_msg, local_view);
 							}			
 						}
 					}
 				}
 			}
 		}
-		std::cout << msg.getData() << "\n";
-		m_msg_buffer.pop_front();
+
+		std::cout << irc_msg.getData() << "\n";
+
+		{
+			std::string channel(irc_msg.getParams()[0]);
+			auto it = m_channels.find(channel);
+			if (it != m_channels.end()) {
+				std::get<0>(it->second)->push(std::move(irc_msg));
+			}
+		}
+		m_msg_pre_buffer.pop_front();
 	}
 }
 
@@ -419,6 +444,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 		std::get<3>(*callback_ptr) = predicate;
 		std::get<4>(*callback_ptr) = msg;
 		std::get<5>(*callback_ptr) = period;
+		std::get<6>(*callback_ptr) = 0;
 		
 		for (auto & ym : year_months) {
 			std::make_shared<GempirUserLogDownloader>(m_ioc)->run(
@@ -558,6 +584,66 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 	}
 }
 
+void SaivBot::clipCommandFunc(const IRCMessage & msg, std::string_view input_line)
+{
+	using namespace OptionParser;
+	OptionParser::Parser parser(Option<NumberType<std::size_t>>("-lines"));
+	auto set = parser.parse(input_line);
+	
+	std::string channel(msg.getParams()[0]);
+	auto it = m_channels.find(channel);
+	if (it != m_channels.end()) {
+		IRCMessageBuffer & msg_buffer = *std::get<0>(it->second);
+
+		if (auto r = set.find<0>()) {
+			std::size_t line_count = r->get<0>();
+			if (line_count > 0) {
+				msg_buffer.accessData(
+					[&](const IRCMessageBuffer::Container & queue)
+				{
+					std::vector<std::reference_wrapper<const IRCMessage>> temp;
+					temp.reserve(line_count);
+					for (std::size_t i = 0; i < line_count; ++i) {
+						if (queue.size() > i) {
+							const IRCMessage & irc_msg = *(queue.crbegin() + i);
+							temp.push_back(irc_msg);
+						}
+						else {
+							break;
+						}
+					}
+					std::stringstream ss;
+					for (auto it = temp.crbegin(); it != temp.crend(); ++it) {
+						const IRCMessage & irc_msg = *it;
+						using namespace date;
+						ss << irc_msg.getTime() << " " << irc_msg.getNick() <<  ": " << irc_msg.getBody() << "\n";
+					}
+					
+					std::make_shared<DankHttp::NuulsUploader>(m_ioc)->run(
+						std::bind(
+							&SaivBot::clipCommandCallback,
+							this,
+							std::placeholders::_1,
+							std::make_shared<IRCMessage>(msg)
+						),
+						ss.str(),
+						"i.nuuls.com",
+						"443",
+						"/upload"
+					);
+				}
+				);
+			}
+		}
+		else {
+			std::stringstream reply;
+			reply << msg.getNick();
+			reply << ", " << "Invalid params NaM";
+			sendPRIVMSG(msg.getParams()[0], reply.str());
+		}
+	}
+}
+
 void SaivBot::promoteCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
@@ -643,35 +729,34 @@ void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
 	std::size_t & mutex_count = std::get<1>(*ptr);
 	std::string & search_str = std::get<2>(*ptr);
 	auto predicate = std::get<3>(*ptr);
-	const IRCMessage & msg = std::get<4>(*ptr);
+	const IRCMessage & irc_msg = std::get<4>(*ptr);
 	const TimeDetail::TimePeriod & period = std::get<5>(*ptr);
-	std::vector<Log> & log_container = std::get<6>(*ptr);
+	std::size_t & current_count = std::get<6>(*ptr);
+
+	//count log
+	auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
+	//auto searcher = std::boyer_moore_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
+	//auto searcher = std::boyer_moore_horspool_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
+	std::size_t count = 0;
+	if (log.isValid()) {
+		for (auto & line : log.getLines()) {
+			if (period.isInside(line.getTime())) {
+				auto & msg = line.getMessageView();
+				count += countTargetOccurrences(msg.begin(), msg.end(), searcher);
+			}
+		}
+	}
+
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		--mutex_count;
-		log_container.push_back(std::move(log));
-		if (mutex_count == 0) {
-			auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
-			//auto searcher = std::boyer_moore_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
-			//auto searcher = std::boyer_moore_horspool_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
-			std::size_t count = 0;
-			for (auto & l : log_container) {
-				if (l.getData() == "{\"message\":\"Not Found\"}") {
-					std::cerr << "FAILED\n";
-					continue;
-				}
-				else {
-					for (std::size_t i = 0; i < l.getNumberOfLines(); ++i) {
-						if (period.isInside(l.getTimes()[i])) {
-							auto & msg = l.getMessages()[i];
-							count += countTargetOccurrences(msg.begin(), msg.end(), searcher);
-						}
-					}
-				}
-			}
+
+		current_count += count;
+
+		if (mutex_count == 0) {			
 			std::stringstream reply;
-			reply << msg.getNick() << ", count: " << count;
-			sendPRIVMSG(msg.getParams()[0], reply.str());
+			reply << irc_msg.getNick() << ", count: " << current_count;
+			sendPRIVMSG(irc_msg.getParams()[0], reply.str());
 		}
 	}
 }
@@ -682,36 +767,51 @@ void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 	std::size_t & mutex_count = std::get<1>(*ptr);
 	std::string & search_str = std::get<2>(*ptr);
 	auto predicate = std::get<3>(*ptr);
-	const IRCMessage & msg = std::get<4>(*ptr);
+	const IRCMessage & irc_msg = std::get<4>(*ptr);
 	const TimeDetail::TimePeriod & period = std::get<5>(*ptr);
 	std::vector<Log> & log_container = std::get<6>(*ptr);
+	std::vector<std::vector<std::reference_wrapper<const Log::LineView>>> & lineviewref_vec = std::get<7>(*ptr);
+
+	//find relevant lines
+	auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
+	std::vector<std::reference_wrapper<const Log::LineView>> lines_found;
+	if (log.isValid()) {
+		for (auto & line : log.getLines()) {
+			auto & time = line.getTime();
+			if (period.isInside(time)) {
+				auto & msg = line.getMessageView();
+				if (std::search(msg.begin(), msg.end(), searcher) != msg.end()) {
+					lines_found.push_back(line);
+				}
+			}
+		}
+	}
+
+
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		--mutex_count;
-		log_container.push_back(std::move(log));
+		
+		if (!lines_found.empty()) {
+			log_container.push_back(std::move(log));
+			lineviewref_vec.push_back(std::move(lines_found));
+		}
+
 		if (mutex_count == 0) {
-			std::stringstream lines_found_stream;
-			auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
-			std::size_t count = 0;
-			for (auto & l : log_container) {
-				if (l.getData() == "{\"message\":\"Not Found\"}") {
-					continue;
+			if (!lineviewref_vec.empty()) {
+				std::vector<std::reference_wrapper<const Log::LineView>> all_lines;
+				for (auto & v : lineviewref_vec) {
+					all_lines.insert(all_lines.end(), v.begin(), v.end());
 				}
-				else {
-					for (std::size_t i = 0; i < l.getNumberOfLines(); ++i) {
-						auto & time = l.getTimes()[i];
-						if (period.isInside(time)) {
-							auto & msg = l.getMessages()[i];
-							if (std::search(msg.begin(), msg.end(), searcher) != msg.end()) {
-								using namespace date;
-								lines_found_stream << time << ": " << msg << "\n";
-								++count;
-							}
-						}
-					}
+				std::sort(all_lines.begin(), all_lines.end(), [](auto & a, auto & b) {return a.get().getTime() < b.get().getTime(); });
+
+				std::stringstream lines_found_stream;
+
+				for (auto & line : all_lines) {
+					using namespace date;
+					lines_found_stream << line.get().getTime() << ": " << line.get().getMessageView() << "\n";
 				}
-			}
-			if (count > 0) {
+
 				std::make_shared<DankHttp::NuulsUploader>(m_ioc)->run(
 					std::bind(
 						&SaivBot::findCommandCallback2,
@@ -719,11 +819,16 @@ void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 						std::placeholders::_1,
 						ptr
 					),
-					lines_found_stream.str(), 
-					"i.nuuls.com", 
-					"443", 
+					lines_found_stream.str(),
+					"i.nuuls.com",
+					"443",
 					"/upload"
 				);
+			}
+			else {
+				std::stringstream reply;
+				reply << irc_msg.getNick() << ", no hit NaM";
+				sendPRIVMSG(irc_msg.getParams()[0], reply.str());
 			}
 		}
 	}
@@ -731,235 +836,18 @@ void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 
 void SaivBot::findCommandCallback2(std::string && str, FindCallbackSharedPtr ptr)
 {
-	const IRCMessage & msg = std::get<4>(*ptr);
+	nuulsServerReply(str, std::get<4>(*ptr));
+}
+
+void SaivBot::clipCommandCallback(std::string && str, ClipCallbackSharedPtr ptr)
+{
+	nuulsServerReply(str, *ptr);
+}
+void SaivBot::nuulsServerReply(const std::string & str, const IRCMessage & msg)
+{
 	std::stringstream reply;
 	reply << msg.getNick() << ", " << str;
 	sendPRIVMSG(msg.getParams()[0], reply.str());
-}
-
-/*
-void SaivBot::countCommandCallback(Log && log, std::shared_ptr<std::string> search_ptr, std::shared_ptr<std::string> channel_ptr, std::shared_ptr<std::string> nick_ptr)
-{
-	std::stringstream reply;
-	std::size_t count = 0;
-	auto searcher = std::boyer_moore_searcher(search_ptr->begin(), search_ptr->end());
-	if (log.getData() == "{\"message\":\"Not Found\"}") {
-		reply << *nick_ptr << ", no logs found NaM";
-	}
-	else {
-		for (std::size_t i = 0; i < log.getNumberOfLines(); ++i) {
-			auto & msg = log.getLines()[i];
-			count += countTargetOccurrences(msg.begin(), msg.end(), searcher);
-		}
-		reply << *nick_ptr << ", count: " << count;
-	}
-	sendPRIVMSG(*channel_ptr, reply.str());
-}
-*/
-
-void IRCMessage::parse()
-{
-	std::string_view data_view(m_data);
-	std::size_t space = 0;
-
-	//prefix
-	if (data_view[0] == ':') {
-		space = data_view.find_first_of(' ');
-		std::string_view prefix_view = data_view.substr(1, space);
-		
-		std::size_t at = prefix_view.find_first_of('@');
-		if (at != prefix_view.npos) {
-			std::size_t ex = prefix_view.find_first_of('!');
-			if (ex != prefix_view.npos) {
-				m_nick_view = prefix_view.substr(0, ex);
-				m_user_view = prefix_view.substr(ex + 1, at - ex - 1);
-				m_host_view = prefix_view.substr(at + 1);
-			}
-			else {
-				m_nick_view = prefix_view.substr(0, at);
-				m_host_view = prefix_view.substr(at + 1);
-			}
-		}
-		else {
-			m_nick_view = prefix_view;
-		}
-		
-		data_view.remove_prefix(space + 1);
-		if (data_view.empty()) return;
-	}
-	
-	//command
-	{
-		space = data_view.find_first_of(' ');
-		m_command_view = data_view.substr(0, space);
-		
-		data_view.remove_prefix(space + 1);
-		if (data_view.empty()) return;
-	}
-
-	//params
-	{
-		while (!data_view.empty()) {
-			if (data_view[0] == ':') break;
-			space = data_view.find_first_of(' ');
-			if (space == data_view.npos) {
-				m_params_vec.push_back(data_view);
-				data_view.remove_prefix(data_view.size());
-				break;
-			}
-			else {
-				m_params_vec.push_back(data_view.substr(0, space));
-				data_view.remove_prefix(space + 1);
-			}
-		}
-		if (data_view.empty()) return;
-	}
-
-	//body
-	if (data_view[0] == ':') {
-		m_body_view = data_view.substr(1);
-	}
-}
-
-void IRCMessage::print(std::ostream & stream)
-{
-	stream
-		<< "nick: " << m_nick_view << "\n"
-		<< "user: " << m_user_view << "\n"
-		<< "host: " << m_host_view << "\n"
-		<< "command: " << m_command_view << "\n"
-		<< "params: " << [](auto & vec)->std::string {std::string str; std::for_each(vec.begin(), vec.end(), [&](auto & s) {str.append(std::string(s) + ", "); }); return str; }(m_params_vec) << "\n"
-		<< "body: " << m_body_view << "\n";
-}
-
-IRCMessage::IRCMessage(const IRCMessage & source)
-{
-	//copy data string
-	m_data = source.m_data;
-
-	//create new string_views relative to m_data
-	{
-		auto & source_view = source.m_nick_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_nick_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-	{
-		auto & source_view = source.m_user_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_user_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-	{
-		auto & source_view = source.m_host_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_host_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-	{
-		auto & source_view = source.m_command_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_command_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-	{
-		auto & source_vec = source.m_params_vec;
-		m_params_vec.reserve(source_vec.size());
-		for (auto & e : source_vec) {
-			assert(e.data() >= source.m_data.data());
-			std::ptrdiff_t distance = e.data() - source.m_data.data();
-			m_params_vec.emplace_back(m_data.data() + distance, e.size());
-		}
-	}
-	{
-		auto & source_view = source.m_body_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_body_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-}
-
-IRCMessage & IRCMessage::operator=(const IRCMessage & source)
-{
-	//copy data string
-	m_data = source.m_data;
-
-	//create new string_views relative to m_data
-	{
-		auto & source_view = source.m_nick_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_nick_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-	{
-		auto & source_view = source.m_user_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_user_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-	{
-		auto & source_view = source.m_host_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_host_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-	{
-		auto & source_view = source.m_command_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_command_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-	{
-		auto & source_vec = source.m_params_vec;
-		m_params_vec.reserve(source_vec.size());
-		for (auto & e : source_vec) {
-			assert(e.data() >= source.m_data.data());
-			std::ptrdiff_t distance = e.data() - source.m_data.data();
-			m_params_vec.emplace_back(m_data.data() + distance, e.size());
-		}
-	}
-	{
-		auto & source_view = source.m_body_view;
-		assert(source_view.data() >= source.m_data.data());
-		std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-		m_body_view = std::string_view(m_data.data() + distance, source_view.size());
-	}
-	return *this;
-}
-
-const std::string & IRCMessage::getData() const
-{
-	return m_data;
-}
-
-const std::string_view & IRCMessage::getNick() const
-{
-	return m_nick_view;
-}
-
-const std::string_view & IRCMessage::getUser() const
-{
-	return m_user_view;
-}
-
-const std::string_view & IRCMessage::getHost() const
-{
-	return m_host_view;
-}
-
-const std::string_view & IRCMessage::getCommand() const
-{
-	return m_command_view;
-}
-
-const std::vector<std::string_view>& IRCMessage::getParams() const
-{
-	return m_params_vec;
-}
-
-const std::string_view & IRCMessage::getBody() const
-{
-	return m_body_view;
 }
 
 std::size_t countTargetOccurrences(const std::string_view & str, const std::string_view & target)

@@ -6,7 +6,21 @@ Log::Log(TimeDetail::TimePeriod period, std::string && data) :
 	m_period(period),
 	m_data(std::move(data))
 {
-	parse();
+	if (m_data != "{\"message\":\"Not Found\"}") {
+		try {
+			parse();
+			m_valid = true;
+			return;
+		}
+		catch (std::runtime_error) {
+			return;
+		}
+	}
+}
+
+bool Log::isValid() const
+{
+	return m_valid;
 }
 
 TimeDetail::TimePeriod Log::getPeriod() const
@@ -19,7 +33,7 @@ const std::string & Log::getData() const
 	return m_data;
 }
 
-const std::vector<std::string_view> & Log::getLines() const
+const std::vector<Log::LineView> & Log::getLines() const
 {
 	return m_lines;
 }
@@ -29,21 +43,6 @@ std::size_t Log::getNumberOfLines() const
 	return m_lines.size();
 }
 
-const std::vector<TimeDetail::TimePoint>& Log::getTimes() const
-{
-	return m_times;
-}
-
-const std::vector<std::string_view>& Log::getNames() const
-{
-	return m_names;
-}
-
-const std::vector<std::string_view>& Log::getMessages() const
-{
-	return m_messages;
-}
-
 void Log::parse()
 {
 	const std::string_view cr("\r\n");
@@ -51,33 +50,42 @@ void Log::parse()
 	while (!data_view.empty()) {
 		auto cr_pos = data_view.find(cr);
 		if (cr_pos == data_view.npos) break;
-		std::string_view line = data_view.substr(0, cr_pos + cr.size());
-		std::string_view all = data_view.substr(0, cr_pos);
+		std::string_view line_view = data_view.substr(0, cr_pos + cr.size());
+		std::string_view all_view = data_view.substr(0, cr_pos);
 
-		auto space = all.find("] ");
-		if (space == all.npos) break;
+		auto space = all_view.find("] ");
+		if (space == all_view.npos) break;
 
-		std::string_view time = all.substr(1, space - 1);
-		all.remove_prefix(space + 2);
+		std::string_view time_view = all_view.substr(1, space - 1);
+		all_view.remove_prefix(space + 2);
 
-		space = all.find(' ');
-		if (space == all.npos) break;
-		std::string_view name = all.substr(0, space - 1);
+		space = all_view.find(' ');
+		if (space == all_view.npos) break;
+		std::string_view name_view = all_view.substr(0, space - 1);
 
-		all.remove_prefix(space + 1);
-		std::string_view message = all;
+		all_view.remove_prefix(space + 1);
+		std::string_view message_view = all_view;
 
-		m_lines.push_back(line);
+		//m_lines.push_back(line);
 
-		if (auto r = TimeDetail::parseTimeString(time)) {
-			m_times.push_back(*r);
+		LineView line;
+		line.m_line_view = line_view;
+		line.m_time_view = time_view;
+
+		if (auto r = TimeDetail::parseTimeString(time_view)) {
+			//m_times.push_back(*r);
+			line.m_time = *r;
 		}
 		else {
 			throw std::runtime_error("Parse log time failed");
 		}
 
-		m_names.push_back(name);
-		m_messages.push_back(message);
+		//m_names.push_back(name);
+		//m_messages.push_back(message);
+		line.m_name_view = name_view;
+		line.m_message_view = message_view;
+
+		m_lines.push_back(line);
 
 		//advance
 		data_view.remove_prefix(cr_pos + cr.size());

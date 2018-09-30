@@ -21,10 +21,11 @@
 #include <fstream>
 #include <filesystem>
 #include <unordered_set>
+#include <unordered_map>
 #include <charconv>
 
 //Date
-#include <date\date.h>
+#include <date/date.h>
 
 //boost
 #include <boost/asio.hpp>
@@ -36,73 +37,18 @@
 #include <OptionParser.hpp>
 
 //Local
+#include "IRCMessage.hpp"
 #include "LogDownloader.hpp"
 #include "DankHttp.hpp"
-
-class IRCMessage
-{
-public:
-	/*
-	*/
-	IRCMessage()
-	{
-	}
-	IRCMessage(std::string && buf) :
-		m_data(std::move(buf))
-	{
-		parse();
-	}
-
-	/*
-	Copy.
-	*/
-	IRCMessage(const IRCMessage & source);
-	IRCMessage & operator=(const IRCMessage & source);
-
-	/*
-	Getters.
-	*/
-	const std::string & getData() const;
-	const std::string_view & getNick() const;
-	const std::string_view & getUser() const;
-	const std::string_view & getHost() const;
-	const std::string_view & getCommand() const;
-	const std::vector<std::string_view> & getParams() const;
-	const std::string_view & getBody() const;
-
-	/*
-	*/
-	void print(std::ostream & stream);
-	
-private:
-	/*
-	Called by constructor.
-	*/
-	void parse();
-
-	std::string m_data;
-	std::string_view m_nick_view;
-	std::string_view m_user_view;
-	std::string_view m_host_view;
-	std::string_view m_command_view;
-	std::vector<std::string_view> m_params_vec;
-	std::string_view m_body_view;
-};
+//#include "IRCMessageTimedBuffer.hpp"
+#include "IRCMessageBuffer.hpp"
 
 /*
 Command container.
 */
 struct CommandContainer
 {
-	//using IteratorType = std::vector<std::string_view>::const_iterator;
-
-	//using FuncType = std::function<
-	//	void(const IRCMessage&,
-	//		IteratorType,
-	//		IteratorType)>;
-
 	using FuncType = std::function<void(const IRCMessage&, std::string_view)>;
-
 
 	CommandContainer(
 		const std::string & command,
@@ -230,8 +176,12 @@ private:
 	std::array<char, m_buffer_size> m_recv_buffer;
 
 	std::string m_buffer;
-	std::deque<IRCMessage> m_msg_buffer;
+	std::deque<IRCMessage> m_msg_pre_buffer;
 
+	static const std::size_t m_message_buffer_size = 1000;
+	using ChannelData = std::tuple<std::unique_ptr<IRCMessageBuffer>>;
+	std::unordered_map<std::string, ChannelData> m_channels;
+	
 	std::string m_host;
 	std::string m_port;
 	std::string m_nick;
@@ -258,8 +208,10 @@ private:
 		find_command,
 		promote_command,
 		demote_command,
+		clip_command,
 		join_command,
 		part_command,
+		//decide_command,
 		NUMBER_OF_COMMANDS
 	};
 
@@ -271,6 +223,7 @@ private:
 	void countCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	//void searchCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void findCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void clipCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void promoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void demoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void joinCommandFunc(const IRCMessage & msg, std::string_view input_line);
@@ -283,12 +236,15 @@ private:
 		CommandContainer("count", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Count the occurrences of target in logs.", bindCommand(&SaivBot::countCommandFunc)),
 		//CommandContainer("search", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Search for target in logs", bindCommand(&SaivBot::searchCommandFunc)),
 		CommandContainer("find", "<target> [-flag1 [param ...] -flag2 [param ...] ...]", "Find all lines containing target in logs.", bindCommand(&SaivBot::findCommandFunc)),
+		CommandContainer("clip", "[-flag1 [param ...] -flag2 [param ...] ...]", "Capture a snapshot of chat.", bindCommand(&SaivBot::clipCommandFunc)),
 		CommandContainer("promote", "<user>", "Whitelist user.", bindCommand(&SaivBot::promoteCommandFunc)),
 		CommandContainer("demote", "<user>", "Remove user from whitelist.", bindCommand(&SaivBot::demoteCommandFunc)),
 		CommandContainer("join", "<channel>", "Join channel.", bindCommand(&SaivBot::joinCommandFunc)),
 		CommandContainer("part", "<channel>", "Part channel.", bindCommand(&SaivBot::partCommandFunc))
 	};
 	
+	/*
+	*/
 	using CountCallbackSharedPtr = std::shared_ptr<
 		std::tuple<
 			std::mutex, 
@@ -297,17 +253,15 @@ private:
 			std::function<bool(char, char)>,
 			IRCMessage,
 			TimeDetail::TimePeriod,
-			std::vector<Log>
+			std::size_t
 		>>;
-
-	/*
-	Count command callback.
-	*/
 	void countCommandCallback(
 		Log && log,
 		CountCallbackSharedPtr ptr
 	);
 
+	/*
+	*/
 	using FindCallbackSharedPtr = std::shared_ptr<
 		std::tuple<
 			std::mutex,
@@ -316,25 +270,29 @@ private:
 			std::function<bool(char, char)>,
 			IRCMessage,
 			TimeDetail::TimePeriod,
-			std::vector<Log>
+			std::vector<Log>,
+			std::vector<std::vector<std::reference_wrapper<const Log::LineView>>>
 		>>;
-
-	/*
-	Search command callback.
-	*/
 	void findCommandCallback(
 		Log && log,
 		FindCallbackSharedPtr ptr
 	);
-
-	/*
-	Search command callback 2.
-	*/
 	void findCommandCallback2(
 		std::string && str,
 		FindCallbackSharedPtr ptr
 	);
 
+	/*
+	*/
+	using ClipCallbackSharedPtr = std::shared_ptr<
+		IRCMessage
+	>;
+	void clipCommandCallback(
+		std::string && str,
+		ClipCallbackSharedPtr ptr
+	);
+
+	void nuulsServerReply(const std::string & str, const IRCMessage & msg);
 };
 
 /*

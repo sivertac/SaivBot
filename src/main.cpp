@@ -5,12 +5,26 @@
 //C++
 #include <iostream>
 #include <string>
+#include <thread>
 
 //Boost
 #include <boost\asio.hpp>
 
 //Local
 #include "../include/SaivBot.hpp"
+
+void workFunc(boost::asio::io_context & ioc)
+{
+	while (true) {
+		try {
+			ioc.run();
+			break;
+		}
+		catch (std::exception & e) {
+			std::cerr << "[" << std::this_thread::get_id() << "] " << "Exception thrown: " << e.what() << "\n";
+		}
+	}
+}
 
 int main(int argc, char** argv)
 {
@@ -19,15 +33,26 @@ int main(int argc, char** argv)
 	SaivBot client(ioc, config_path);
 	client.run();
 
-	while (true) {
-		try {
-			ioc.run();
-			break;
+	unsigned int thread_count = std::thread::hardware_concurrency();
+	std::cout << "[" << std::this_thread::get_id() << "] " << "Thread count: " << thread_count << "\n";
+	if (thread_count == 0) {
+		workFunc(ioc);
+	}
+	else {
+		std::vector<std::thread> threads(thread_count);
+		for (auto & t : threads) {
+			t = std::thread(workFunc, std::ref(ioc));
 		}
-		catch (std::exception & e) {
-			std::cerr << "Exception thrown: " << e.what() << "\n";
+		for (auto & t : threads) {
+			if (t.joinable()) {
+				t.join();
+				std::cout << "[" << std::this_thread::get_id() << "] " << "Mainthread join\n";
+			}
 		}
 	}
+
+	std::cout << "[" << std::this_thread::get_id() << "] " << "Mainthread exit\n";
+
 
 	return 0;
 }
