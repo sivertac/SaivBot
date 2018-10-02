@@ -824,6 +824,7 @@ std::vector<date::year_month> SaivBot::periodToYearMonths(const TimeDetail::Time
 	date::year_month begin_ym(ymd.year(), ymd.month());
 	ymd = date::floor<date::days>(period.end());
 	date::year_month end_ym(ymd.year(), ymd.month());
+	end_ym += date::months(1);
 	while (begin_ym < end_ym) {
 		year_months.push_back(begin_ym);
 		begin_ym += date::months(1);

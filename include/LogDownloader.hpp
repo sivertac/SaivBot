@@ -105,6 +105,11 @@ private:
 	std::vector<LineView> m_lines;
 };
 
+class LogDownloader : public std::enable_shared_from_this<LogDownloader>
+{
+
+};
+
 class GempirUserLogDownloader : public std::enable_shared_from_this<GempirUserLogDownloader>
 {
 public:
