@@ -195,7 +195,7 @@ private:
 	Bind command
 	*/
 	template <typename FuncPtr>
-	auto bindCommand(FuncPtr func)
+	constexpr CommandContainer::FuncType  bindCommand(FuncPtr func)
 	{
 		return std::bind(func, this, std::placeholders::_1, std::placeholders::_2);
 	}

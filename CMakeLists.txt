@@ -1,6 +1,21 @@
 cmake_minimum_required(VERSION 3.10.1)
 project (SaivBot)
 
+set(CMAKE_CXX_COMPILER g++)
+
+set(BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../boost)
+#set(OPENSSL_ROOT_DIR /usr/local/ssl)
+#set(DOPENSSL_LIBRARIES /usr/local/ssl/lib)
+
+set(Boost_USE_STATIC_LIBS OFF)
+set(Boost_USE_MULTITHREADED ON)
+set(Boost_USE_STATIC_RUNTIME OFF)
+
+find_package(Boost 1.68.0 REQUIRED COMPONENTS system) 
+include_directories(${Boost_INCLUDE_DIRS})    
+find_package(OpenSSL REQUIRED)
+find_package(Threads)
+
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(SaivBot 
@@ -8,14 +23,23 @@ set(SaivBot
 	${CMAKE_CURRENT_SOURCE_DIR}/src/SaivBot.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/DankHttp.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/IRCMessage.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/src/IRCMEssageBuffer.cpp
-	${CMAKE_CURRENT_SOURCE_DIR}/src/IRCMEssageTimedBuffer.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/IRCMessageBuffer.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/IRCMessageTimedBuffer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/LogDownloader.cpp
 	)
 
-add_executable(SaivBot ${SaivBot})
+if (Boost_FOUND)
+	include_directories(${Boost_INCLUDE_DIRS})
+	add_executable(SaivBot ${SaivBot})
+	target_compile_options(SaivBot PRIVATE -std=c++17 -lrt)
+	target_link_libraries(SaivBot ${CMAKE_THREAD_LIBS_INIT})
+	target_link_libraries(SaivBot ${Boost_LIBRARIES})	
 
-target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../date/include)
-target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../OptionParser/include)
+	target_link_libraries(SaivBot ssl crypto)
+
+	target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../date/include)
+	target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../json/include)
+	target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../OptionParser/include)
+endif()
 
 #cmake <source dir> -DCMAKE_TOOLCHAIN_FILE=[vcpkg root]\scripts\buildsystems\vcpkg.cmake

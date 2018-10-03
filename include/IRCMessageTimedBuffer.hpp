@@ -12,7 +12,7 @@
 #include <cassert>
 
 //boost
-#include <boost\asio.hpp>
+#include <boost/asio.hpp>
 
 //local
 #include "IRCMessage.hpp"
