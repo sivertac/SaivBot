@@ -179,7 +179,7 @@ private:
 	std::string m_buffer;
 	std::deque<IRCMessage> m_msg_pre_buffer;
 
-	static const std::size_t m_message_buffer_size = 1000;
+	const std::size_t m_message_buffer_size = 1000;
 	using ChannelData = std::tuple<std::unique_ptr<IRCMessageBuffer>>;
 	std::unordered_map<std::string, ChannelData> m_channels;
 	
