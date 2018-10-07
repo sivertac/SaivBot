@@ -178,6 +178,15 @@ namespace TimeDetail
 		}
 		return TimePeriod(begin_time, end_time);
 	}
+
+	inline TimePeriod createYearMonthPeriod(const date::year_month & ym)
+	{
+		auto date_begin = date::year_month_day(ym.year(), ym.month(), date::day(1));
+		auto date_end = date_begin + date::months(1);
+		TimeDetail::TimePoint time_begin = date::sys_days(date_begin);
+		TimeDetail::TimePoint time_end = date::sys_days(date_end);
+		return TimeDetail::TimePeriod(time_begin, time_end);
+	}
 };
 
 #endif // !TimeDetail_HEADER

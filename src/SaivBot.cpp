@@ -89,6 +89,8 @@ void SaivBot::connectHandler(boost::system::error_code ec)
 	sendJOIN(channel);
 	sendPRIVMSG(channel, "monkaMEGA");
 
+	m_time_started = std::chrono::system_clock::now();
+
 	m_sock.async_read_some(
 		boost::asio::buffer(m_recv_buffer),
 		std::bind(
@@ -238,15 +240,15 @@ void SaivBot::consumeMsgBuffer()
 		}
 		else {
 			//xD
-			if (isInPrefixCaseless(irc_msg.getBody(), std::string_view("!xd"))) {
-				sendPRIVMSG(irc_msg.getParams()[0], "xD");
-			}
-			else if (isInPrefixCaseless(irc_msg.getBody(), std::string_view("!NaM"))) {
-				sendPRIVMSG(irc_msg.getParams()[0], "NaM");
-			}
-			else if (irc_msg.getBody().find("A multi-raffle has begun") != irc_msg.getBody().npos) {
-				sendPRIVMSG(irc_msg.getParams()[0], "!join");
-			}
+			//if (isInPrefixCaseless(irc_msg.getBody(), std::string_view("!xd"))) {
+			//	sendPRIVMSG(irc_msg.getParams()[0], "xD");
+			//}
+			//else if (isInPrefixCaseless(irc_msg.getBody(), std::string_view("!NaM"))) {
+			//	sendPRIVMSG(irc_msg.getParams()[0], "NaM");
+			//}
+			//else if (irc_msg.getBody().find("A multi-raffle has begun") != irc_msg.getBody().npos) {
+			//	sendPRIVMSG(irc_msg.getParams()[0], "!join");
+			//}
 			
 			//commands
 			{
@@ -283,7 +285,11 @@ void SaivBot::consumeMsgBuffer()
 
 void SaivBot::sendPRIVMSG(const std::string_view & channel, const std::string_view & msg)
 {
+#ifdef SaivBot_TESTMODE
+	sendIRC(std::string("PRIVMSG ").append(channel).append(" :").append(msg).append(" TEST"));
+#else
 	sendIRC(std::string("PRIVMSG ").append(channel).append(" :").append(msg));
+#endif
 }
 
 void SaivBot::sendJOIN(const std::string_view & channel)
@@ -413,18 +419,15 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 			predicate = std::equal_to<char>();
 		}
 
+		if (channel[0] == '#') channel.erase(0, 1);
+
 		//gather months and years
 		std::vector<date::year_month> year_months = periodToYearMonths(period);
 		if (year_months.empty()) {
 			sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
 			return;
 		}
-
-		if (channel[0] == '#') channel.erase(0, 1);
 		
-		const std::string host("api.gempir.com");
-		const std::string port("443");
-
 		CountCallbackSharedPtr callback_ptr = std::make_shared<CountCallbackSharedPtr::element_type>();
 		std::get<1>(*callback_ptr) = year_months.size();
 		std::get<2>(*callback_ptr) = std::move(search_str);
@@ -432,23 +435,28 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 		std::get<4>(*callback_ptr) = msg;
 		std::get<5>(*callback_ptr) = period;
 		std::get<6>(*callback_ptr) = 0;
-		
-		for (auto & ym : year_months) {
-			std::make_shared<GempirUserLogDownloader>(m_ioc)->run(
-				std::bind(
-					&SaivBot::countCommandCallback,
-					this,
-					std::placeholders::_1,
-					callback_ptr
-				),
-				host,
-				port,
-				channel,
-				user,
-				ym.month(),
-				ym.year()
+
+		//set up log request
+		LogRequest log_request;
+		{
+			log_request.m_callback = std::bind(
+				&SaivBot::countCommandCallback,
+				this,
+				std::placeholders::_1,
+				callback_ptr
 			);
+			log_request.m_parser = gempirLogParser;
+			log_request.m_host = "api.gempir.com";
+			log_request.m_port = "443";
+			log_request.m_targets.reserve(year_months.size());
+			for (auto & ym : year_months) {
+				log_request.m_targets.emplace_back(
+					TimeDetail::createYearMonthPeriod(ym), 
+					createGempirUserTarget(channel, user, ym)
+				);	
+			}
 		}
+		std::make_shared<LogDownloader>(m_ioc)->run(std::move(log_request));
 	}
 }
 
@@ -523,17 +531,18 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 			predicate = std::equal_to<char>();
 		}
 
+
+		if (channel[0] == '#') channel.erase(0, 1);
+
+		const std::string host("api.gempir.com");
+		const std::string port("443");
+		
 		//gather months and years
 		std::vector<date::year_month> year_months = periodToYearMonths(period);
 		if (year_months.empty()) {
 			sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
 			return;
 		}
-
-		if (channel[0] == '#') channel.erase(0, 1);
-
-		const std::string host("api.gempir.com");
-		const std::string port("443");
 
 		FindCallbackSharedPtr callback_ptr = std::make_shared<FindCallbackSharedPtr::element_type>();
 		std::get<1>(*callback_ptr) = year_months.size();
@@ -542,22 +551,27 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 		std::get<4>(*callback_ptr) = msg;
 		std::get<5>(*callback_ptr) = period;
 
-		for (auto & ym : year_months) {
-			std::make_shared<GempirUserLogDownloader>(m_ioc)->run(
-				std::bind(
-					&SaivBot::findCommandCallback,
-					this,
-					std::placeholders::_1,
-					callback_ptr
-				),
-				host,
-				port,
-				channel,
-				user,
-				ym.month(),
-				ym.year()
+		//set up log request
+		LogRequest log_request;
+		{
+			log_request.m_callback = std::bind(
+				&SaivBot::findCommandCallback,
+				this,
+				std::placeholders::_1,
+				callback_ptr
 			);
+			log_request.m_parser = gempirLogParser;
+			log_request.m_host = "api.gempir.com";
+			log_request.m_port = "443";
+			log_request.m_targets.reserve(year_months.size());
+			for (auto & ym : year_months) {
+				log_request.m_targets.emplace_back(
+					TimeDetail::createYearMonthPeriod(ym),
+					createGempirUserTarget(channel, user, ym)
+				);
+			}
 		}
+		std::make_shared<LogDownloader>(m_ioc)->run(std::move(log_request));
 	}
 }
 
@@ -689,7 +703,17 @@ void SaivBot::partCommandFunc(const IRCMessage & msg, std::string_view input_lin
 	}
 }
 
-//void SaivBot::countCommandCallback(Log && log, std::shared_ptr<std::pair<std::mutex, std::size_t>> mutex_ptr, std::shared_ptr<const std::string> search_ptr, std::shared_ptr<const IRCMessage> msg_ptr, std::shared_ptr<std::vector<Log>> log_container_ptr)
+void SaivBot::uptimeCommandFunc(const IRCMessage & msg, std::string_view input_line)
+{
+	if (isWhitelisted(msg.getNick())) {
+		std::chrono::system_clock::duration d = std::chrono::system_clock::now() - m_time_started;
+		std::stringstream s;
+		using namespace date;
+		s << msg.getNick() << ", " << std::chrono::floor<std::chrono::seconds>(d);
+		sendPRIVMSG(msg.getParams()[0], s.str());
+	}
+}
+
 void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
 {
 	std::mutex & mutex = std::get<0>(*ptr);
@@ -705,6 +729,7 @@ void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
 	//auto searcher = std::boyer_moore_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
 	//auto searcher = std::boyer_moore_horspool_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
 	std::size_t count = 0;
+
 	if (log.isValid()) {
 		for (auto & line : log.getLines()) {
 			if (period.isInside(line.getTime())) {
@@ -717,9 +742,7 @@ void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		--mutex_count;
-
 		current_count += count;
-
 		if (mutex_count == 0) {			
 			std::stringstream reply;
 			reply << irc_msg.getNick() << ", count: " << current_count;
@@ -753,7 +776,6 @@ void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 			}
 		}
 	}
-
 
 	{
 		std::lock_guard<std::mutex> lock(mutex);

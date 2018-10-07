@@ -35,10 +35,7 @@ int main(int argc, char** argv)
 
 	unsigned int thread_count = std::thread::hardware_concurrency();
 	std::cout << "[" << std::this_thread::get_id() << "] " << "Thread count: " << thread_count << "\n";
-	if (thread_count == 0) {
-		workFunc(ioc);
-	}
-	else {
+	if (thread_count > 0) {
 		std::vector<std::thread> threads(thread_count);
 		for (auto & t : threads) {
 			t = std::thread(workFunc, std::ref(ioc));
@@ -49,6 +46,9 @@ int main(int argc, char** argv)
 				std::cout << "[" << std::this_thread::get_id() << "] " << "Mainthread join\n";
 			}
 		}
+	}
+	else {
+		std::cerr << "std::this_thread::get_id() error\n";
 	}
 
 	std::cout << "[" << std::this_thread::get_id() << "] " << "Mainthread exit\n";

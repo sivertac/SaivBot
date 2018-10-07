@@ -32,84 +32,103 @@
 
 //local
 #include "TimeDetail.hpp"
+#include "Log.hpp"
 
-class Log
+struct LogRequest
 {
-public:
-	class LineView
-	{
-	public:
-		const std::string_view & getLineView() const
-		{
-			return m_line_view;
-		}
-		const std::string_view & getTimeView() const
-		{
-			return m_time_view;
-		}
-		const TimeDetail::TimePoint & getTime() const
-		{
-			return m_time;
-		}
-		const std::string_view & getNameView() const
-		{
-			return m_name_view;
-		}
-		const std::string_view & getMessageView() const
-		{
-			return m_message_view;
-		}
-	private:
-		friend Log;
-		std::string_view m_line_view;
-		std::string_view m_time_view;
-		TimeDetail::TimePoint m_time;
-		std::string_view m_name_view;
-		std::string_view m_message_view;
-	};
-
-	/*
-	*/
-	Log(TimeDetail::TimePeriod period, std::string && data);
-
-	/*
-	*/
-	bool isValid() const;
-
-	/*
-	*/
-	TimeDetail::TimePeriod getPeriod() const;
-
-	/*
-	*/
-	const std::string & getData() const;
-
-	/*
-	*/
-	const std::vector<LineView> & getLines() const;
-
-	/*
-	*/
-	std::size_t getNumberOfLines() const;
-
-private:
-	/*
-	*/
-	void parse();
-
-	bool m_valid = false;
-	std::string m_data;
-
-	const TimeDetail::TimePeriod m_period;
-
-	std::vector<LineView> m_lines;
+	using CallbackType = std::function<void(Log&&)>;
+	using Target = std::pair<TimeDetail::TimePeriod, std::string>;
+	using TargetIterator = std::vector<Target>::const_iterator;
+	CallbackType m_callback;
+	Log::ParserFunc m_parser;
+	std::string m_host;
+	std::string m_port;
+	std::vector<Target> m_targets;
+	int m_version = 11;
 };
 
 class LogDownloader : public std::enable_shared_from_this<LogDownloader>
 {
+public:
+	using HttpRequestType = boost::beast::http::request<boost::beast::http::empty_body>;
+	using HttpResponseType = boost::beast::http::response<boost::beast::http::string_body>;
 
+	LogDownloader(boost::asio::io_context & ioc);
+
+	void run(LogRequest && request);
+
+private:
+	void resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results);
+
+	void connectHandler(boost::system::error_code ec);
+
+	void handshakeHandler(boost::system::error_code ec);
+
+	void writeHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it);
+
+	void readHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it);
+
+	void shutdownHandler(boost::system::error_code ec);
+
+	void fillHttpRequest(const LogRequest::Target & target);
+
+	boost::asio::io_context & m_ioc;
+	boost::asio::ssl::context m_ctx;
+	boost::asio::ip::tcp::resolver m_resolver;
+	std::unique_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> m_stream_ptr;
+	boost::beast::flat_buffer m_buffer;
+	HttpRequestType m_http_request;
+	HttpResponseType m_http_response;
+
+	std::mutex m_read_handler_mutex;
+	LogRequest m_request;
 };
 
+/*
+*/
+std::string createGempirUserTarget(
+	const std::string_view & channel,
+	const std::string_view & user,
+	const date::year_month & ym
+);
+
+/*
+*/
+std::string createGempirChannelTarget(
+	const std::string_view & channel,
+	const date::year_month_day & date
+);
+
+/*
+*/
+bool gempirLogParser(
+	const std::string & data,
+	std::vector<Log::LineView> & lines
+);
+
+/*
+*/
+std::string createOverrustleUserTarget(
+	const std::string_view & channel,
+	const std::string_view & user,
+	const date::year_month & ym
+);
+
+/*
+*/
+std::string createOverrustleChannelTarget(
+	const std::string_view & channel,
+	const date::year_month_day & date
+);
+
+/*
+*/
+bool overrustleLogParser(
+	const std::string & data,
+	std::vector<Log::LineView> & lines
+);
+
+#if 0
 class GempirUserLogDownloader : public std::enable_shared_from_this<GempirUserLogDownloader>
 {
 public:
@@ -176,6 +195,8 @@ public:
 	void shutdownHandler(boost::system::error_code ec);
 
 private:
+	static bool parser(const std::string & data, std::vector<Log::LineView> & lines);
+
 	boost::asio::io_context & m_ioc;
 	boost::asio::ssl::context m_ctx;
 	boost::asio::ip::tcp::resolver m_resolver;
@@ -197,5 +218,6 @@ private:
 
 	CallbackType m_callback;
 };
+#endif
 
 #endif // !LogDownloader_HEADER

@@ -188,6 +188,8 @@ private:
 	std::string m_nick;
 	std::string m_password;
 
+	TimeDetail::TimePoint m_time_started;
+
 	std::unordered_set<std::string> m_whitelist;
 	std::unordered_set<std::string> m_modlist;
 
@@ -213,6 +215,7 @@ private:
 		demote_command,
 		join_command,
 		part_command,
+		uptime,
 		NUMBER_OF_COMMANDS
 	};
 
@@ -230,6 +233,7 @@ private:
 	void demoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void joinCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void partCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void uptimeCommandFunc(const IRCMessage & msg, std::string_view input_line);
 
 	const std::array<CommandContainer, Commands::NUMBER_OF_COMMANDS> m_command_containers
 	{
@@ -243,7 +247,8 @@ private:
 		CommandContainer("promote", "<user>", "Whitelist user.", bindCommand(&SaivBot::promoteCommandFunc)),
 		CommandContainer("demote", "<user>", "Remove user from whitelist.", bindCommand(&SaivBot::demoteCommandFunc)),
 		CommandContainer("join", "<channel>", "Join channel.", bindCommand(&SaivBot::joinCommandFunc)),
-		CommandContainer("part", "<channel>", "Part channel.", bindCommand(&SaivBot::partCommandFunc))
+		CommandContainer("part", "<channel>", "Part channel.", bindCommand(&SaivBot::partCommandFunc)),
+		CommandContainer("uptime", "", "Get uptime.", bindCommand(&SaivBot::uptimeCommandFunc))
 	};
 	
 	/*
@@ -294,6 +299,10 @@ private:
 		std::string && str,
 		ClipCallbackSharedPtr ptr
 	);
+
+	/*
+	*/
+	//void linesFromNowCollector(std::size_t lines, )
 
 	/*
 	*/
