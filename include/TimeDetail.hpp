@@ -28,12 +28,26 @@ namespace TimeDetail
 		return ss.str();
 	}
 
-	inline std::optional<TimePoint> parseTimeString(const std::string_view & view)
+	inline std::optional<TimePoint> parseGempirTimeString(const std::string_view & view)
 	{
 		std::stringstream ss;
 		ss << view;
 		TimePoint point;
 		ss >> date::parse("%F %T", point);
+		if (ss.fail()) {
+			return std::nullopt;
+		}
+		else {
+			return point;
+		}
+	}
+
+	inline std::optional<TimePoint> parseOverrustleTimeString(const std::string_view & view)
+	{
+		std::stringstream ss;
+		ss << view;
+		TimePoint point;
+		ss >> date::parse("%F %T %Z", point);
 		if (ss.fail()) {
 			return std::nullopt;
 		}

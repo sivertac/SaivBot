@@ -238,18 +238,7 @@ void SaivBot::consumeMsgBuffer()
 			}
 			std::cout << irc_msg.getData() << "\n";
 		}
-		else {
-			//xD
-			//if (isInPrefixCaseless(irc_msg.getBody(), std::string_view("!xd"))) {
-			//	sendPRIVMSG(irc_msg.getParams()[0], "xD");
-			//}
-			//else if (isInPrefixCaseless(irc_msg.getBody(), std::string_view("!NaM"))) {
-			//	sendPRIVMSG(irc_msg.getParams()[0], "NaM");
-			//}
-			//else if (irc_msg.getBody().find("A multi-raffle has begun") != irc_msg.getBody().npos) {
-			//	sendPRIVMSG(irc_msg.getParams()[0], "!join");
-			//}
-			
+		else {	
 			//commands
 			{
 				std::string_view local_view = irc_msg.getBody();
@@ -360,14 +349,22 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 			Option<WordType>("-channel"),
 			Option<WordType>("-user"),
 			Option<WordType, WordType>("-period"),
-			Option<>("-caseless")
+			Option<>("-caseless"),
+			Option<WordType>("-service")
 		);
+
+		enum LogService
+		{
+			gempir_log,
+			overrustle_log
+		};
 
 		auto set = parser.parse(input_line);
 
 		std::string search_str;
 		std::string channel;
 		std::string user;
+		LogService service;
 
 		std::function<bool(char, char)> predicate;
 
@@ -412,11 +409,28 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 			}
 		}
 
-		if (auto r = set.find<5>()) {
+		if (auto r = set.find<5>()) { //predecate (-caseless)
 			predicate = [](char l, char r) {return std::tolower(l) == std::tolower(r); };
 		}
 		else {
 			predicate = std::equal_to<char>();
+		}
+
+		if (auto r = set.find<6>()) { //service
+			auto s = r->get<0>();
+			if (caselessCompare(s, "gempir")) {
+				service = LogService::gempir_log;
+			}
+			else if (caselessCompare(s, "overrustle")) {
+				service = LogService::overrustle_log;
+			}
+			else {
+				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid service NaM"));
+				return;
+			}
+		}
+		else {
+			service = LogService::gempir_log;
 		}
 
 		if (channel[0] == '#') channel.erase(0, 1);
@@ -445,14 +459,34 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 				std::placeholders::_1,
 				callback_ptr
 			);
-			log_request.m_parser = gempirLogParser;
-			log_request.m_host = "api.gempir.com";
+
+			std::function<
+				std::string(
+					const std::string_view&,
+					const std::string_view&,
+					const date::year_month&
+				)> create_target_func;
+
+			if (service == LogService::gempir_log) {
+				log_request.m_parser = gempirLogParser;
+				log_request.m_host = "api.gempir.com";
+				create_target_func = createGempirUserTarget;
+			}
+			else if (service == LogService::overrustle_log) {
+				log_request.m_parser = overrustleLogParser;
+				log_request.m_host = "overrustlelogs.net";
+				create_target_func = createOverrustleUserTarget;
+			}
+			else {
+				assert(false);
+			}
+
 			log_request.m_port = "443";
 			log_request.m_targets.reserve(year_months.size());
 			for (auto & ym : year_months) {
 				log_request.m_targets.emplace_back(
-					TimeDetail::createYearMonthPeriod(ym), 
-					createGempirUserTarget(channel, user, ym)
+					TimeDetail::createYearMonthPeriod(ym),	
+					create_target_func(channel, user, ym)
 				);	
 			}
 		}
@@ -689,9 +723,7 @@ void SaivBot::joinCommandFunc(const IRCMessage & msg, std::string_view input_lin
 void SaivBot::partCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
-
-		using namespace OptionParser;
-		
+		using namespace OptionParser;	
 		Parser parser(Option<WordType>(m_command_containers[Commands::part_command].m_command));
 		auto set = parser.parse(input_line);
 		if (auto r = set.find<0>()) {
@@ -711,6 +743,17 @@ void SaivBot::uptimeCommandFunc(const IRCMessage & msg, std::string_view input_l
 		using namespace date;
 		s << msg.getNick() << ", " << std::chrono::floor<std::chrono::seconds>(d);
 		sendPRIVMSG(msg.getParams()[0], s.str());
+	}
+}
+
+void SaivBot::sayCommandFunc(const IRCMessage & msg, std::string_view input_line)
+{
+	if (isModerator(msg.getNick())) {
+		if (auto first_word = OptionParser::extractFirstWordDestructive(input_line)) {
+			//std::stringstream ss;
+			//ss << input_line;
+			sendPRIVMSG(msg.getParams()[0], input_line);
+		}	
 	}
 }
 

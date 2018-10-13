@@ -419,7 +419,7 @@ bool gempirLogParser(const std::string & data, std::vector<Log::LineView>& lines
 		all_view.remove_prefix(space + 1);
 		std::string_view message_view = all_view;
 		TimeDetail::TimePoint time;
-		if (auto r = TimeDetail::parseTimeString(time_view)) {
+		if (auto r = TimeDetail::parseGempirTimeString(time_view)) {
 			time = *r;
 		}
 		else {
@@ -450,7 +450,8 @@ std::string createOverrustleUserTarget(const std::string_view & channel, const s
 		<< " "
 		<< std::to_string(static_cast<int>(ym.year()))
 		<< "/userlogs/"
-		<< user;
+		<< user
+		<< ".txt";
 	return target.str();
 }
 
@@ -465,6 +466,56 @@ std::string createOverrustleChannelTarget(const std::string_view & channel, cons
 		<< " "
 		<< std::to_string(static_cast<int>(date.year()))
 		<< "/"
-		<< date::format("%F", date);
+		<< date::format("%F", date)
+		<< ".txt";
 	return target.str();
 }
+
+bool overrustleLogParser(const std::string & data, std::vector<Log::LineView> & lines)
+{
+	if (data == "didn't find any logs for this user") return false;
+	
+	const std::string_view cr("\n");
+
+	std::string_view data_view(data);
+	while (!data_view.empty()) {
+		auto cr_pos = data_view.find(cr);
+		if (cr_pos == data_view.npos) break;
+		std::string_view line_view = data_view.substr(0, cr_pos + cr.size());
+		std::string_view all_view = data_view.substr(0, cr_pos);
+		auto space = all_view.find("] ");
+		if (space == all_view.npos) {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		std::string_view time_view = all_view.substr(1, space - 1);
+		all_view.remove_prefix(space + 2);
+		space = all_view.find(' ');
+		if (space == all_view.npos) {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		std::string_view name_view = all_view.substr(0, space - 1);
+		all_view.remove_prefix(space + 1);
+		std::string_view message_view = all_view;
+		TimeDetail::TimePoint time;
+		if (auto r = TimeDetail::parseOverrustleTimeString(time_view)) {
+			time = *r;
+		}
+		else {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		lines.emplace_back(
+			line_view,
+			time_view,
+			time,
+			name_view,
+			message_view
+		);
+		//advance
+		data_view.remove_prefix(cr_pos + cr.size());
+	}
+	return true;	
+}
+

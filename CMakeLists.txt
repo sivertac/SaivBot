@@ -6,6 +6,8 @@ set(CMAKE_CXX_COMPILER g++)
 set(Boost_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../boost/boost_1_67_0)
 set(Boost_LIBRARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../boost/boost_1_67_0/stage/lib)
 
+option(DEFINE_DEBUG "debug build" OFF)
+
 set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_RUNTIME OFF)
@@ -26,12 +28,20 @@ set(SaivBot
 	${CMAKE_CURRENT_SOURCE_DIR}/src/IRCMessageTimedBuffer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Log.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/LogDownloader.cpp
-	)
+)	
 
 if (Boost_FOUND)
 	include_directories(${Boost_INCLUDE_DIRS})
 	add_executable(SaivBot ${SaivBot})
-	target_compile_options(SaivBot PRIVATE -std=c++17 -O3)
+
+	if (DEFINE_DEBUG) 
+		message("Debug build")
+		target_compile_options(SaivBot PRIVATE -std=c++17 -DSaivBot_TESTMODE)
+	else (DEFINE_DEBUG)
+		message("Release build")
+		target_compile_options(SaivBot PRIVATE -std=c++17 -O3)
+	endif (DEFINE_DEBUG)
+
 	target_link_libraries(SaivBot ${CMAKE_THREAD_LIBS_INIT})
 	target_link_libraries(SaivBot ${Boost_LIBRARIES})	
 	target_link_libraries(SaivBot -lstdc++fs)

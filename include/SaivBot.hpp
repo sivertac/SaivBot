@@ -216,6 +216,7 @@ private:
 		join_command,
 		part_command,
 		uptime,
+		say,
 		NUMBER_OF_COMMANDS
 	};
 
@@ -234,6 +235,7 @@ private:
 	void joinCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void partCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void uptimeCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void sayCommandFunc(const IRCMessage & msg, std::string_view input_line);
 
 	const std::array<CommandContainer, Commands::NUMBER_OF_COMMANDS> m_command_containers
 	{
@@ -248,7 +250,8 @@ private:
 		CommandContainer("demote", "<user>", "Remove user from whitelist.", bindCommand(&SaivBot::demoteCommandFunc)),
 		CommandContainer("join", "<channel>", "Join channel.", bindCommand(&SaivBot::joinCommandFunc)),
 		CommandContainer("part", "<channel>", "Part channel.", bindCommand(&SaivBot::partCommandFunc)),
-		CommandContainer("uptime", "", "Get uptime.", bindCommand(&SaivBot::uptimeCommandFunc))
+		CommandContainer("uptime", "", "Get uptime.", bindCommand(&SaivBot::uptimeCommandFunc)),
+		CommandContainer("say", "<stuff to say>", "Make bot say something.", bindCommand(&SaivBot::sayCommandFunc))
 	};
 	
 	/*
