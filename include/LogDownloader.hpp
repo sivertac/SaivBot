@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <chrono>
+#include <limits>
 
 //Date
 #include <date/date.h>
@@ -52,6 +53,7 @@ class LogDownloader : public std::enable_shared_from_this<LogDownloader>
 public:
 	using HttpRequestType = boost::beast::http::request<boost::beast::http::empty_body>;
 	using HttpResponseType = boost::beast::http::response<boost::beast::http::string_body>;
+	using HttpResponseParserType = boost::beast::http::response_parser<boost::beast::http::string_body>;
 
 	LogDownloader(boost::asio::io_context & ioc);
 
@@ -75,10 +77,10 @@ private:
 	boost::asio::io_context & m_ioc;
 	boost::asio::ssl::context m_ctx;
 	boost::asio::ip::tcp::resolver m_resolver;
-	std::unique_ptr<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> m_stream_ptr;
+	std::optional<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>> m_stream;
 	boost::beast::flat_buffer m_buffer;
-	HttpRequestType m_http_request;
-	HttpResponseType m_http_response;
+	HttpRequestType m_http_request;	
+	std::optional<HttpResponseParserType> m_http_response_parser;
 
 	std::mutex m_read_handler_mutex;
 	LogRequest m_request;

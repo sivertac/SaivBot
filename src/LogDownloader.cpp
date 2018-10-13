@@ -219,14 +219,16 @@ LogDownloader::LogDownloader(boost::asio::io_context & ioc) :
 	m_resolver(ioc)
 {
 	load_root_certificates(m_ctx);
-	m_stream_ptr = std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>(m_ioc, m_ctx);
+	m_stream.emplace(m_ioc, m_ctx);
+	m_http_response_parser.emplace();
+	m_http_response_parser->body_limit(std::numeric_limits<std::uint64_t>::max());
 }
 
 void LogDownloader::run(LogRequest && request)
 {
 	m_request = std::move(request);
 
-	if (!SSL_set_tlsext_host_name(m_stream_ptr->native_handle(), m_request.m_host.c_str())) {
+	if (!SSL_set_tlsext_host_name(m_stream->native_handle(), m_request.m_host.c_str())) {
 		boost::system::error_code ec{ static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category() };
 		std::cerr << ec.message() << "\n";
 		return;
@@ -248,7 +250,7 @@ void LogDownloader::resolveHandler(boost::system::error_code ec, boost::asio::ip
 {
 	if (ec) throw std::runtime_error(ec.message());
 	boost::asio::async_connect(
-		m_stream_ptr->next_layer(),
+		m_stream->next_layer(),
 		results.begin(),
 		results.end(),
 		std::bind(
@@ -262,7 +264,7 @@ void LogDownloader::resolveHandler(boost::system::error_code ec, boost::asio::ip
 void LogDownloader::connectHandler(boost::system::error_code ec)
 {
 	if (ec) throw std::runtime_error(ec.message());
-	m_stream_ptr->async_handshake(
+	m_stream->async_handshake(
 		ssl::stream_base::client,
 		std::bind(
 			&LogDownloader::handshakeHandler,
@@ -279,7 +281,7 @@ void LogDownloader::handshakeHandler(boost::system::error_code ec)
 	auto it = m_request.m_targets.cbegin();
 	fillHttpRequest(*it);
 	boost::beast::http::async_write(
-		*m_stream_ptr,
+		*m_stream,
 		m_http_request,
 		std::bind(
 			&LogDownloader::writeHandler,
@@ -295,7 +297,10 @@ void LogDownloader::writeHandler(boost::system::error_code ec, std::size_t bytes
 {
 	if (ec) throw std::runtime_error(ec.message());
 	boost::ignore_unused(bytes_transferred);
-	boost::beast::http::async_read(*m_stream_ptr, m_buffer, m_http_response,
+	boost::beast::http::async_read(
+		*m_stream, 
+		m_buffer,	
+		*m_http_response_parser,
 		std::bind(
 			&LogDownloader::readHandler,
 			shared_from_this(),
@@ -312,15 +317,17 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 	boost::ignore_unused(bytes_transferred);
 
 	std::lock_guard<std::mutex> lock(m_read_handler_mutex);
-
-	std::string temp_data = std::move(m_http_response.body());
+	
+	std::string temp_data = std::move(m_http_response_parser->get().body());
+	m_http_response_parser.emplace();
+	m_http_response_parser->body_limit(std::numeric_limits<std::uint64_t>::max());
 
 	auto next_it = std::next(it);
 	
 	if (next_it != m_request.m_targets.cend()) {
 		fillHttpRequest(*next_it);
 		boost::beast::http::async_write(
-			*m_stream_ptr,
+			*m_stream,
 			m_http_request,
 			std::bind(
 				&LogDownloader::writeHandler,
@@ -332,7 +339,7 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 		);
 	}
 	else {
-		m_stream_ptr->async_shutdown(
+		m_stream->async_shutdown(
 			std::bind(
 				&LogDownloader::shutdownHandler,
 				shared_from_this(),

@@ -496,7 +496,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 
 void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
-	if (isWhitelisted(msg.getNick())) {
+	if (isModerator(msg.getNick())) {
 
 		using namespace OptionParser;
 
