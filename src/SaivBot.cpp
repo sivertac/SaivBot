@@ -88,6 +88,10 @@ void SaivBot::connectHandler(boost::system::error_code ec)
 
 	sendJOIN(channel);
 	sendPRIVMSG(channel, "monkaMEGA");
+	
+		
+	//sendJOIN("#jtv");
+	sendWHISPERRequest();
 
 	m_time_started = std::chrono::system_clock::now();
 
@@ -216,29 +220,38 @@ void SaivBot::consumeMsgBuffer()
 {
 	while (!m_msg_pre_buffer.empty()) {
 		auto & irc_msg = m_msg_pre_buffer.front();
-		if (irc_msg.getCommand() != "PRIVMSG") {
-			if (irc_msg.getCommand() == "PING") {
-				sendIRC("PONG");
-			}
-			else if (caselessCompare(irc_msg.getNick(), m_nick)) {
-				if (irc_msg.getCommand() == "JOIN") {
-					std::string channel(irc_msg.getParams()[0]);
-					if (m_channels.find(channel) == m_channels.end()) {
-						ChannelData data = std::make_tuple(std::make_unique<IRCMessageBuffer>(m_message_buffer_size));
-						m_channels.emplace(std::move(channel), std::move(data));
+		if (irc_msg.getCommand() == "PRIVMSG") {
+			//commands
+			{
+				std::string_view local_view = irc_msg.getBody();
+				
+				if (auto first_word = OptionParser::extractFirstWordDestructive(local_view)) {
+					if (caselessCompare(*first_word, m_nick)) {
+						auto pair = OptionParser::extractFirstWord(local_view);
+						if (!pair.first.empty()) {
+							std::string_view second_word = pair.first;
+							auto command_it = std::find_if(
+								m_command_containers.begin(),
+								m_command_containers.end(),
+								[&](auto & cc) {return caselessCompare(cc.m_command, second_word); }
+							);
+							if (command_it != m_command_containers.end()) {
+								command_it->m_func(irc_msg, local_view);
+							}			
+						}
 					}
 				}
-				else if (irc_msg.getCommand() == "PART") {
-					std::string channel(irc_msg.getParams()[0]);
-					auto it = m_channels.find(channel);
-					if (it != m_channels.end()) {
-						m_channels.erase(it);
-					}
+			}
+			{
+				std::string channel(irc_msg.getParams()[0]);
+				auto it = m_channels.find(channel);
+				if (it != m_channels.end()) {
+					std::get<0>(it->second)->push(std::move(irc_msg));
 				}
 			}
-			std::cout << irc_msg.getData() << "\n";
+	
 		}
-		else {	
+		else if (irc_msg.getCommand() == "WHISPER") {
 			//commands
 			{
 				std::string_view local_view = irc_msg.getBody();
@@ -260,15 +273,30 @@ void SaivBot::consumeMsgBuffer()
 					}
 				}
 			}
-			{
-				std::string channel(irc_msg.getParams()[0]);
-				auto it = m_channels.find(channel);
-				if (it != m_channels.end()) {
-					std::get<0>(it->second)->push(std::move(irc_msg));
+		}
+		else {
+			if (irc_msg.getCommand() == "PING") {
+				sendIRC("PONG");
+			}
+			else if (caselessCompare(irc_msg.getNick(), m_nick)) {
+				if (irc_msg.getCommand() == "JOIN") {
+					std::string channel(irc_msg.getParams()[0]);
+					if (m_channels.find(channel) == m_channels.end()) {
+						ChannelData data = std::make_tuple(std::make_unique<IRCMessageBuffer>(m_message_buffer_size));
+						m_channels.emplace(std::move(channel), std::move(data));
+					}
+				}
+				else if (irc_msg.getCommand() == "PART") {
+					std::string channel(irc_msg.getParams()[0]);
+					auto it = m_channels.find(channel);
+					if (it != m_channels.end()) {
+						m_channels.erase(it);
+					}
 				}
 			}
+			std::cout << irc_msg.getData() << "\n";
 		}
-		m_msg_pre_buffer.pop_front();
+		m_msg_pre_buffer.pop_front(); //POP!!!
 	}
 }
 
@@ -289,6 +317,38 @@ void SaivBot::sendJOIN(const std::string_view & channel)
 void SaivBot::sendPART(const std::string_view & channel)
 {
 	sendIRC(std::string("PART ").append(channel));
+}
+
+void SaivBot::sendWHISPERRequest()
+{
+	sendIRC(std::string("CAP REQ :twitch.tv/commands"));	
+}
+
+void SaivBot::replyToIRCMessage(const IRCMessage & msg, const std::string_view & reply)
+{
+	if (msg.getCommand() == "PRIVMSG") {
+		sendPRIVMSG(msg.getParams()[0], reply);
+	}
+	else if (msg.getCommand() == "WHISPER") {
+		sendWHISPER(msg.getNick(), reply);
+	}
+	else {
+		throw std::runtime_error("Can't reply to IRCMessage");
+	}
+}
+
+void SaivBot::sendWHISPER(const std::string_view & target, const std::string_view & msg)
+{
+	std::stringstream ss;
+	ss 
+		<< "PRIVMSG #jtv :"
+		<< "/w "
+		<< target
+		<< " "
+		<< msg;
+
+	sendIRC(ss.str());
+	std::cout << ss.str() << "\n";
 }
 
 bool SaivBot::isModerator(const std::string_view & user)
@@ -404,7 +464,8 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 				period = *r2;
 			}
 			else {
-				sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
+				//sendPRIVMSG(msg.getParams()[0], std::string(msg.getNick()).append(", invalid period NaM"));
+				replyToIRCMessage(msg, std::string(msg.getNick()).append(", invalid period NaM"));
 				return;
 			}
 		}
@@ -749,12 +810,36 @@ void SaivBot::uptimeCommandFunc(const IRCMessage & msg, std::string_view input_l
 void SaivBot::sayCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
+		using namespace OptionParser;	
+		Parser parser(Option<StringType>(m_command_containers[Commands::say_command].m_command), Option<WordType>("-channel"));
+		auto set = parser.parse(input_line);
+		
+		if (auto r = set.find<0>()) {
+			auto str = r->get<0>();
+
+			std::string_view channel = msg.getParams()[0];
+			if (auto r1 = set.find<1>()) {
+				channel = r1->get<0>();
+			}
+
+			sendPRIVMSG(channel, str);
+		}
+
+	/*	
 		if (auto first_word = OptionParser::extractFirstWordDestructive(input_line)) {
 			//std::stringstream ss;
 			//ss << input_line;
 			sendPRIVMSG(msg.getParams()[0], input_line);
-		}	
+		}
+	*/	
 	}
+}
+
+void SaivBot::pingCommandFunc(const IRCMessage & msg, std::string_view input_line)
+{
+	std::stringstream ss;
+	ss << msg.getNick() << ", " << "PONG NaM \xE2\x80\xBC";	
+	sendPRIVMSG(msg.getParams()[0], ss.str());
 }
 
 void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)

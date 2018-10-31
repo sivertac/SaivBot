@@ -152,6 +152,23 @@ private:
 	void sendPART(const std::string_view & channel);
 
 	/*
+	Send "CAP REQ :twitch.tv/commands"
+	*/	
+	void sendWHISPERRequest();
+
+	/*
+	Send WHISPER
+	*/
+	void sendWHISPER(const std::string_view & target, const std::string_view & msg);
+
+	/*
+	Reply to IRCMessage.
+	If message is from channel, then reply in that channel.
+	If message is a whisper, then reply to whisper.
+	*/
+	void replyToIRCMessage(const IRCMessage & msg, const std::string_view & reply);
+
+	/*
 	Check if user is moderator.
 	*/
 	bool isModerator(const std::string_view & user);
@@ -215,8 +232,9 @@ private:
 		demote_command,
 		join_command,
 		part_command,
-		uptime,
-		say,
+		uptime_command,
+		say_command,
+		ping_command,
 		NUMBER_OF_COMMANDS
 	};
 
@@ -236,6 +254,7 @@ private:
 	void partCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void uptimeCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void sayCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void pingCommandFunc(const IRCMessage & msg, std::string_view input_line);
 
 	const std::array<CommandContainer, Commands::NUMBER_OF_COMMANDS> m_command_containers
 	{
@@ -251,7 +270,8 @@ private:
 		CommandContainer("join", "<channel>", "Join channel.", bindCommand(&SaivBot::joinCommandFunc)),
 		CommandContainer("part", "<channel>", "Part channel.", bindCommand(&SaivBot::partCommandFunc)),
 		CommandContainer("uptime", "", "Get uptime.", bindCommand(&SaivBot::uptimeCommandFunc)),
-		CommandContainer("say", "<stuff to say>", "Make bot say something.", bindCommand(&SaivBot::sayCommandFunc))
+		CommandContainer("say", "<stuff to say>", "Make bot say something.", bindCommand(&SaivBot::sayCommandFunc)),
+		CommandContainer("ping", "", "Ping the bot", bindCommand(&SaivBot::pingCommandFunc))
 	};
 	
 	/*

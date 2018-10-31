@@ -313,7 +313,7 @@ void LogDownloader::writeHandler(boost::system::error_code ec, std::size_t bytes
 
 void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it)
 {
-	if (ec) throw std::runtime_error(std::string("read: ").append(ec.message()));
+	if (ec) throw std::runtime_error(ec.message());
 	boost::ignore_unused(bytes_transferred);
 
 	std::lock_guard<std::mutex> lock(m_read_handler_mutex);
