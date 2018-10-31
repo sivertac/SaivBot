@@ -811,27 +811,24 @@ void SaivBot::sayCommandFunc(const IRCMessage & msg, std::string_view input_line
 {
 	if (isModerator(msg.getNick())) {
 		using namespace OptionParser;	
-		Parser parser(Option<StringType>(m_command_containers[Commands::say_command].m_command), Option<WordType>("-channel"));
+		Parser parser(
+			Option<StringType>(m_command_containers[Commands::say_command].m_command),
+			Option<WordType>("-channel")
+		);
 		auto set = parser.parse(input_line);
-		
 		if (auto r = set.find<0>()) {
 			auto str = r->get<0>();
-
 			std::string_view channel = msg.getParams()[0];
 			if (auto r1 = set.find<1>()) {
-				channel = r1->get<0>();
+				channel = formatIRCChannelName(r1->get<0>());
 			}
-
 			sendPRIVMSG(channel, str);
 		}
-
-	/*	
-		if (auto first_word = OptionParser::extractFirstWordDestructive(input_line)) {
-			//std::stringstream ss;
-			//ss << input_line;
-			sendPRIVMSG(msg.getParams()[0], input_line);
+		else {
+			if (auto first_word = OptionParser::extractFirstWordDestructive(input_line)) {
+				sendPRIVMSG(msg.getParams()[0], input_line);
+			}
 		}
-	*/	
 	}
 }
 

@@ -403,4 +403,25 @@ Caseless compare.
 */
 bool caselessCompare(const std::string_view & str1, const std::string_view & str2);
 
+//to lower case string.
+inline std::string toLowerCaseString(const std::string_view & source)
+{
+	std::string str;
+	std::transform(source.begin(), source.end(), std::back_inserter(str), ::tolower);
+	return str;
+}
+
+//Format string to twitch irc channel name format. 
+inline std::string formatIRCChannelName(const std::string_view & source)
+{
+	if (source.empty()) return std::string("#");
+	if (source[0] == '#') return toLowerCaseString(source);
+	else {
+		std::stringstream ss;
+		ss << '#' << toLowerCaseString(source);
+		return ss.str();
+	}
+}
+
+
 #endif // !SaivBot_HEADER
