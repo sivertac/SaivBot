@@ -137,6 +137,11 @@ private:
 	void consumeMsgBuffer();
 
 	/*
+
+	*/
+	void parseFreeMessage(const IRCMessage & msg);
+
+	/*
 	Send PRIVMSG.
 	*/
 	void sendPRIVMSG(const std::string_view & channel, const std::string_view & msg);
@@ -345,7 +350,7 @@ Parameters:
 	b
 Return:
 	true if a is a prefix of b, or b is a prefix of a
-	false false if not
+	false if not
 */
 template <class C1, class C2>
 bool prefixCompare(const C1 & a, const C2 & b)

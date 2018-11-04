@@ -24,6 +24,10 @@ void SaivBot::loadConfig(const std::filesystem::path & path)
 	m_password = j["password"];
 	nlohmann::from_json(j["modlist"], m_modlist);
 	nlohmann::from_json(j["whitelist"], m_whitelist);
+	
+	for (const std::string & ch : j["channels"]) {
+		m_channels.try_emplace(ch, ChannelData(std::make_unique<IRCMessageBuffer>(m_message_buffer_size))); 
+	}
 }
 
 void SaivBot::saveConfig(const std::filesystem::path & path)
@@ -35,6 +39,16 @@ void SaivBot::saveConfig(const std::filesystem::path & path)
 	j["password"] = m_password;
 	j["modlist"] = m_modlist;
 	j["whitelist"] = m_whitelist;
+
+	{
+		std::vector<std::string_view> temp;
+		temp.reserve(m_channels.size());
+		for (auto & pair : m_channels) {
+			temp.emplace_back(pair.first);
+		}
+		j["channels"] = temp;
+	}
+
 	std::fstream fs(path, std::ios::trunc | std::ios::out);
 	if (!fs.is_open()) throw std::runtime_error("Can't open config file");
 	fs << j;
@@ -82,13 +96,13 @@ void SaivBot::connectHandler(boost::system::error_code ec)
 
 	sendIRC("NICK " + m_nick);
 
-	std::string channel("#"); 
-	channel.append(m_nick);
-	std::transform(channel.begin(), channel.end(), channel.begin(), ::tolower);
-
+	std::string channel = formatIRCChannelName(m_nick); 
 	sendJOIN(channel);
 	sendPRIVMSG(channel, "monkaMEGA");
-	
+
+	for (auto & pair : m_channels) {
+		sendJOIN(pair.first);
+	}	
 		
 	//sendJOIN("#jtv");
 	sendWHISPERRequest();
@@ -221,6 +235,7 @@ void SaivBot::consumeMsgBuffer()
 	while (!m_msg_pre_buffer.empty()) {
 		auto & irc_msg = m_msg_pre_buffer.front();
 		if (irc_msg.getCommand() == "PRIVMSG") {
+			parseFreeMessage(irc_msg);
 			//commands
 			{
 				std::string_view local_view = irc_msg.getBody();
@@ -251,9 +266,11 @@ void SaivBot::consumeMsgBuffer()
 			}
 	
 		}
+		/*
 		else if (irc_msg.getCommand() == "WHISPER") {
 			//commands
-			{
+			{	
+
 				std::string_view local_view = irc_msg.getBody();
 				
 				if (auto first_word = OptionParser::extractFirstWordDestructive(local_view)) {
@@ -270,10 +287,11 @@ void SaivBot::consumeMsgBuffer()
 								command_it->m_func(irc_msg, local_view);
 							}			
 						}
-					}
+					}	
 				}
 			}
 		}
+		*/
 		else {
 			if (irc_msg.getCommand() == "PING") {
 				sendIRC("PONG");
@@ -281,16 +299,23 @@ void SaivBot::consumeMsgBuffer()
 			else if (caselessCompare(irc_msg.getNick(), m_nick)) {
 				if (irc_msg.getCommand() == "JOIN") {
 					std::string channel(irc_msg.getParams()[0]);
-					if (m_channels.find(channel) == m_channels.end()) {
-						ChannelData data = std::make_tuple(std::make_unique<IRCMessageBuffer>(m_message_buffer_size));
-						m_channels.emplace(std::move(channel), std::move(data));
-					}
+					auto it = m_channels.find(channel);
+					if (it == m_channels.end()) {
+						m_channels.emplace(
+							channel,
+							ChannelData(
+								std::make_unique<IRCMessageBuffer>(m_message_buffer_size)
+							)
+						);
+						saveConfig(m_config_path);
+					}	
 				}
 				else if (irc_msg.getCommand() == "PART") {
 					std::string channel(irc_msg.getParams()[0]);
 					auto it = m_channels.find(channel);
 					if (it != m_channels.end()) {
 						m_channels.erase(it);
+						saveConfig(m_config_path);
 					}
 				}
 			}
@@ -298,6 +323,13 @@ void SaivBot::consumeMsgBuffer()
 		}
 		m_msg_pre_buffer.pop_front(); //POP!!!
 	}
+}
+
+void SaivBot::parseFreeMessage(const IRCMessage & msg)
+{
+	if (msg.getBody().find("A multi-raffle has begun") != msg.getBody().npos) {
+		sendPRIVMSG(msg.getParams()[0], "!join");
+	}	
 }
 
 void SaivBot::sendPRIVMSG(const std::string_view & channel, const std::string_view & msg)
@@ -788,9 +820,7 @@ void SaivBot::partCommandFunc(const IRCMessage & msg, std::string_view input_lin
 		Parser parser(Option<WordType>(m_command_containers[Commands::part_command].m_command));
 		auto set = parser.parse(input_line);
 		if (auto r = set.find<0>()) {
-			std::string channel("#");
-			channel.append(r->get<0>());
-			std::transform(channel.begin(), channel.end(), channel.begin(), ::tolower);
+			std::string channel = formatIRCChannelName(r->get<0>());
 			sendPART(channel);
 		}
 	}
@@ -813,7 +843,8 @@ void SaivBot::sayCommandFunc(const IRCMessage & msg, std::string_view input_line
 		using namespace OptionParser;	
 		Parser parser(
 			Option<StringType>(m_command_containers[Commands::say_command].m_command),
-			Option<WordType>("-channel")
+			Option<WordType>("-channel"),
+			Option<NumberType<std::size_t>>("-echo")
 		);
 		auto set = parser.parse(input_line);
 		if (auto r = set.find<0>()) {
@@ -822,7 +853,15 @@ void SaivBot::sayCommandFunc(const IRCMessage & msg, std::string_view input_line
 			if (auto r1 = set.find<1>()) {
 				channel = formatIRCChannelName(r1->get<0>());
 			}
-			sendPRIVMSG(channel, str);
+			std::size_t echo = 1;
+			if (auto r1 = set.find<2>()) {
+				echo = r1->get<0>();
+				if (echo > 5) echo = 5;
+			}
+			
+			for (std::size_t i = 0; i < echo; ++i) {
+				sendPRIVMSG(channel, str);
+			}
 		}
 		else {
 			if (auto first_word = OptionParser::extractFirstWordDestructive(input_line)) {
