@@ -76,7 +76,8 @@ public:
 	*/
 	SaivBot(
 		boost::asio::io_context & ioc,
-		const std::filesystem::path & config_path 
+		boost::asio::ssl::context && ctx,
+		const std::filesystem::path & config_path
 	);
 	
 	/*
@@ -106,6 +107,10 @@ private:
 	/*
 	*/
 	void connectHandler(boost::system::error_code ec);
+
+	/*
+	*/
+	void handshakeHandler(boost::system::error_code ec);
 
 	/*
 	*/
@@ -187,10 +192,11 @@ private:
 	bool m_running = false;
 
 	boost::asio::io_context & m_ioc;
-	std::filesystem::path m_config_path;
+	boost::asio::ssl::context m_ctx;
+	boost::asio::ssl::stream<boost::asio::ip::tcp::socket> m_stream;
 	boost::asio::ip::tcp::resolver m_resolver;
-	boost::asio::ip::tcp::socket m_sock;
-
+	std::filesystem::path m_config_path;
+	
 	std::mutex m_send_mutex;
 	std::string m_last_message_queued;
 	std::chrono::system_clock::time_point m_next_message_time;

@@ -314,6 +314,7 @@ void LogDownloader::writeHandler(boost::system::error_code ec, std::size_t bytes
 void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it)
 {
 	if (ec) throw std::runtime_error(ec.message());
+
 	boost::ignore_unused(bytes_transferred);
 
 	std::lock_guard<std::mutex> lock(m_read_handler_mutex);
@@ -321,7 +322,7 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 	std::string temp_data = std::move(m_http_response_parser->get().body());
 	m_http_response_parser.emplace();
 	m_http_response_parser->body_limit(std::numeric_limits<std::uint64_t>::max());
-
+	
 	auto next_it = std::next(it);
 	
 	if (next_it != m_request.m_targets.cend()) {
@@ -380,7 +381,7 @@ std::string createGempirUserTarget(const std::string_view & channel, const std::
 		<< "/"
 		<< std::to_string(static_cast<int>(ym.year()))
 		<< "/"
-		<< TimeDetail::monthToString(ym.month());
+		<< std::to_string(static_cast<unsigned int>(ym.month()));
 	return target.str();
 }
 
@@ -401,9 +402,8 @@ std::string createGempirChannelTarget(const std::string_view & channel, const da
 
 bool gempirLogParser(const std::string & data, std::vector<Log::LineView>& lines)
 {
-	if (data == "{\"message\":\"Not Found\"}") return false;
-
-	const std::string_view cr("\r\n");
+	if (data == "{\"message\":\"Failure reading log\"}") return false;
+	const std::string_view cr("\n");
 	std::string_view data_view(data);
 	while (!data_view.empty()) {
 		auto cr_pos = data_view.find(cr);
@@ -422,8 +422,15 @@ bool gempirLogParser(const std::string & data, std::vector<Log::LineView>& lines
 			data_view.remove_prefix(cr_pos + cr.size());
 			continue;
 		}
-		std::string_view name_view = all_view.substr(0, space - 1);
+		std::string_view channel_view = all_view.substr(0, space);
 		all_view.remove_prefix(space + 1);
+		space = all_view.find(':');
+		if (space == all_view.npos) {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		std::string_view name_view = all_view.substr(0, space);
+		all_view.remove_prefix(space + 2);
 		std::string_view message_view = all_view;
 		TimeDetail::TimePoint time;
 		if (auto r = TimeDetail::parseGempirTimeString(time_view)) {
@@ -440,6 +447,7 @@ bool gempirLogParser(const std::string & data, std::vector<Log::LineView>& lines
 			name_view,
 			message_view
 		);
+
 		//advance
 		data_view.remove_prefix(cr_pos + cr.size());
 	}

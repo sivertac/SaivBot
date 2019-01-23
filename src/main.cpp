@@ -30,7 +30,9 @@ int main(int argc, char** argv)
 {
 	boost::asio::io_context ioc;
 	std::filesystem::path config_path("Config.txt");
-	SaivBot client(ioc, config_path);
+	boost::asio::ssl::context ctx{ boost::asio::ssl::context::sslv23 };
+	load_root_certificates(ctx);
+	SaivBot client(ioc, std::move(ctx), config_path);
 	client.run();
 
 	unsigned int thread_count = std::thread::hardware_concurrency();
@@ -52,29 +54,6 @@ int main(int argc, char** argv)
 	}
 
 	std::cout << "[" << std::this_thread::get_id() << "] " << "Mainthread exit\n";
-
-
-	return 0;
-}
-
-#endif
-
-#if 0
-
-#include <iostream>
-#include <chrono>
-#include "../include/IRCMessage.hpp"
-
-int main(int argc, char** argv)
-{
-
-	std::string str1("PING :tmi.twitch.tv");
-
-	IRCMessage irc_msg1(std::chrono::system_clock::now(), std::move(str1));
-
-
-	irc_msg1.print(std::cout);
-
 
 
 	return 0;

@@ -1,25 +1,16 @@
-cmake_minimum_required(VERSION 3.10.1)
+cmake_minimum_required(VERSION 3.13.0)
 project (SaivBot)
 
-set(CMAKE_CXX_COMPILER g++)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(Boost_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../boost/boost_1_67_0)
-set(Boost_LIBRARY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../boost/boost_1_67_0/stage/lib)
+set(Openssl_LIBRARIES 
+    libcrypto_static.lib 
+    libssl_static.lib
+)
 
-option(DEFINE_DEBUG "debug build" OFF)
-
-set(Boost_USE_STATIC_LIBS OFF)
-set(Boost_USE_MULTITHREADED ON)
-set(Boost_USE_STATIC_RUNTIME OFF)
-
-find_package(Boost 1.67.0 REQUIRED COMPONENTS system) 
-include_directories(${Boost_INCLUDE_DIRS})    
-find_package(OpenSSL REQUIRED)
-find_package(Threads)
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-set(SaivBot 
+add_executable(SaivBot
 	${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/SaivBot.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/DankHttp.cpp	
@@ -30,25 +21,61 @@ set(SaivBot
 	${CMAKE_CURRENT_SOURCE_DIR}/src/LogDownloader.cpp
 )	
 
-if (Boost_FOUND)
-	include_directories(${Boost_INCLUDE_DIRS})
-	add_executable(SaivBot ${SaivBot})
 
-	if (DEFINE_DEBUG) 
-		message("Debug build")
-		target_compile_options(SaivBot PRIVATE -std=c++17 -DSaivBot_TESTMODE)
-	else (DEFINE_DEBUG)
-		message("Release build")
-		target_compile_options(SaivBot PRIVATE -std=c++17 -O3)
-	endif (DEFINE_DEBUG)
+include_directories(${Boost_INCLUDE_DIRS})
+add_executable(SaivBot ${SaivBot})
 
-	target_link_libraries(SaivBot ${CMAKE_THREAD_LIBS_INIT})
-	target_link_libraries(SaivBot ${Boost_LIBRARIES})	
-	target_link_libraries(SaivBot -lstdc++fs)
-	target_link_libraries(SaivBot ssl crypto)
+if (CMAKE_BUILD_TYPE EQUAL "DEBUG") 
+	message("Debug build")
+	target_compile_definitions(SaivBot PRIVATE SaivBot_TESTMODE)
+else (CMAKE_BUILD_TYPE EQUAL "DEBUG")
+	message("Release build")
+	#target_compile_options(SaivBot PRIVATE -std=c++17 -O3)
+endif (CMAKE_BUILD_TYPE EQUAL "DEBUG")
 
-	target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../date/include)
-	target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../json/include)
-	target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../OptionParser/include)
-endif()
+target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(SaivBot PRIVATE ${Date_INCLUDE_DIRS})
+target_include_directories(SaivBot PRIVATE ${Json_INCLUDE_DIRS})
+target_include_directories(SaivBot PRIVATE ${OptionParser_INCLUDE_DIRS})
+target_include_directories(SaivBot PRIVATE ${Boost_INCLUDE_DIRS})
+target_include_directories(SaivBot PRIVATE ${Openssl_INCLUDE_DIRS})
+target_link_directories(SaivBot PRIVATE ${Boost_LIBRARY_DIRS})
+target_link_directories(SaivBot PRIVATE ${Openssl_LIBRARY_DIRS})
+target_link_libraries(SaivBot PRIVATE ${Boost_LIBRARIES})
+target_link_libraries(SaivBot PRIVATE ${Openssl_LIBRARIES})
+
+if (NOT DEFINED Date_INCLUDE_DIRS)
+	message("Date_INCLUDE_DIRS not defined")
+endif (NOT DEFINED Date_INCLUDE_DIRS)
+
+if (NOT DEFINED Json_INCLUDE_DIRS)
+	message("Json_INCLUDE_DIRS not defined")
+endif (NOT DEFINED Json_INCLUDE_DIRS)
+
+if (NOT DEFINED OptionParser_INCLUDE_DIRS)
+	message("OptionParser_INCLUDE_DIRS not defined")
+endif (NOT DEFINED OptionParser_INCLUDE_DIRS)
+
+if (NOT DEFINED Boost_INCLUDE_DIRS)
+    message("Boost_INCLUDE_DIRS not defined")
+endif (NOT DEFINED Boost_INCLUDE_DIRS)
+
+if (NOT DEFINED Boost_LIBRARY_DIRS)
+    message("Boost_LIBRARY_DIRS not defined")
+endif (NOT DEFINED Boost_LIBRARY_DIRS)
+
+if (NOT DEFINED Openssl_INCLUDE_DIRS)
+    message("Openssl_INCLUDE_DIRS not defined")
+endif (NOT DEFINED Openssl_INCLUDE_DIRS)
+
+if (NOT DEFINED Openssl_LIBRARY_DIRS)
+    message("Openssl_LIBRARY_DIRS not defined")
+endif (NOT DEFINED Openssl_LIBRARY_DIRS)
+
+#target_link_libraries(SaivBot ${CMAKE_THREAD_LIBS_INIT})
+#target_link_libraries(SaivBot ${Boost_LIBRARIES})	
+#target_link_libraries(SaivBot -lstdc++fs)
+#target_link_libraries(SaivBot ssl crypto)
+
+
 

@@ -3,10 +3,11 @@
 
 #include "../include/SaivBot.hpp"
 
-SaivBot::SaivBot(boost::asio::io_context & ioc, const std::filesystem::path & config_path) :
+SaivBot::SaivBot(boost::asio::io_context & ioc, boost::asio::ssl::context && ctx, const std::filesystem::path & config_path) :
 	m_ioc(ioc),
+	m_ctx(std::move(ctx)),
+	m_stream(ioc, m_ctx),
 	m_resolver(ioc),
-	m_sock(ioc),
 	m_config_path(config_path)
 {
 	loadConfig(m_config_path);
@@ -14,6 +15,12 @@ SaivBot::SaivBot(boost::asio::io_context & ioc, const std::filesystem::path & co
 
 void SaivBot::loadConfig(const std::filesystem::path & path)
 {
+	if (!std::filesystem::exists(path)) {
+		saveConfig(path);
+		std::cout << "Edit Config.txt\n";
+		throw std::runtime_error("Edit Config.txt");
+	}
+
 	nlohmann::json j;
 	std::fstream fs(path, std::ios::in);
 	if (!fs.is_open()) throw std::runtime_error("Can't open config file");
@@ -77,8 +84,9 @@ SaivBot::~SaivBot()
 
 void SaivBot::resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results)
 {
+	if (ec) throw std::runtime_error(ec.message());
 	boost::asio::async_connect(
-		m_sock,
+		m_stream.next_layer(),
 		results.begin(),
 		results.end(),
 		std::bind(
@@ -87,29 +95,41 @@ void SaivBot::resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp:
 			std::placeholders::_1
 		)
 	);
-	if (ec) throw std::runtime_error(ec.message());
 }
 
 void SaivBot::connectHandler(boost::system::error_code ec)
+{
+	if (ec) throw std::runtime_error(ec.message());
+	m_stream.async_handshake(
+		ssl::stream_base::client,
+		std::bind(
+			&SaivBot::handshakeHandler,
+			this,
+			std::placeholders::_1
+		)
+	);
+}
+
+void SaivBot::handshakeHandler(boost::system::error_code ec)
 {
 	sendIRC("PASS " + m_password);
 
 	sendIRC("NICK " + m_nick);
 
-	std::string channel = formatIRCChannelName(m_nick); 
+	std::string channel = formatIRCChannelName(m_nick);
 	sendJOIN(channel);
 	sendPRIVMSG(channel, "monkaMEGA");
 
 	for (auto & pair : m_channels) {
 		sendJOIN(pair.first);
-	}	
-		
+	}
+
 	//sendJOIN("#jtv");
 	sendWHISPERRequest();
 
 	m_time_started = std::chrono::system_clock::now();
 
-	m_sock.async_read_some(
+	m_stream.async_read_some(
 		boost::asio::buffer(m_recv_buffer),
 		std::bind(
 			&SaivBot::receiveHandler,
@@ -129,9 +149,9 @@ void SaivBot::receiveHandler(boost::system::error_code ec, std::size_t ret)
 	consumeMsgBuffer();
 
 	if (!m_running) return;
-	if (!m_sock.is_open()) throw std::runtime_error("Unexpected closed socket");
+	if (!m_stream.next_layer().is_open()) throw std::runtime_error("Unexpected closed socket");
 
-	m_sock.async_read_some(
+	m_stream.async_read_some(
 		boost::asio::buffer(m_recv_buffer),
 		std::bind(
 			&SaivBot::receiveHandler,
@@ -165,7 +185,7 @@ void SaivBot::sendIRC(const std::string & msg)
 		if (m_next_message_time < now) {
 			m_next_message_time = now + std::chrono::milliseconds(1750);
 			boost::asio::async_write(
-				m_sock,
+				m_stream,
 				boost::asio::buffer(*msg_ptr),
 				std::bind(
 					&SaivBot::sendHandler,
@@ -197,9 +217,8 @@ void SaivBot::sendIRC(const std::string & msg)
 
 void SaivBot::sendTimerHandler(boost::system::error_code ec, std::shared_ptr<boost::asio::system_timer> timer_ptr, std::shared_ptr<std::string> ptr)
 {
-
 	boost::asio::async_write(
-		m_sock,
+		m_stream,
 		boost::asio::buffer(*ptr),
 		std::bind(
 			&SaivBot::sendHandler,
