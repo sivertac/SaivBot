@@ -5,10 +5,18 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(Openssl_LIBRARIES 
-    libcrypto_static.lib 
-    libssl_static.lib
-)
+if (UNIX)
+	set(Openssl_LIBRARIES) 
+		ssl
+		crypto
+	)
+endif (UNIX)
+if (MSVC)
+	set(Openssl_LIBRARIES 
+		libcrypto_static.lib 
+		libssl_static.lib
+	)
+endif
 
 add_executable(SaivBot
 	${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
@@ -20,10 +28,6 @@ add_executable(SaivBot
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Log.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/LogDownloader.cpp
 )	
-
-
-include_directories(${Boost_INCLUDE_DIRS})
-add_executable(SaivBot ${SaivBot})
 
 if (CMAKE_BUILD_TYPE EQUAL "DEBUG") 
 	message("Debug build")
@@ -43,6 +47,10 @@ target_link_directories(SaivBot PRIVATE ${Boost_LIBRARY_DIRS})
 target_link_directories(SaivBot PRIVATE ${Openssl_LIBRARY_DIRS})
 target_link_libraries(SaivBot PRIVATE ${Boost_LIBRARIES})
 target_link_libraries(SaivBot PRIVATE ${Openssl_LIBRARIES})
+
+if (UNIX)
+	target_link_libraries(SaivBot PRIVATE lstdc++fs pthread)
+endif (UNIX)
 
 if (NOT DEFINED Date_INCLUDE_DIRS)
 	message("Date_INCLUDE_DIRS not defined")
