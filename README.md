@@ -1,10 +1,50 @@
 # SaivBot
-A twitch IRC bot.
+A twitch-irc bot implemented in C++17.
+The main feature of SaivBot is to lookup data in twitch irc logs. This is done by a user sending a query to the bot (via twitch chat), then the bot will parse the query (using [OptionParser](https://github.com/SaivNator/OptionParser)) and compile a list of relevant logs.
+The logs will then be downloaded from a 3rd party twitch chat log host ([justlog](https://api.gempir.com) and [OverRustleLogs](https://overrustlelogs.net)) are currently supported) and will be parsed according to the query.
+Depending on the type of query, the result will either be sendt back directly to the user in twitch chat or the bot will upload the result to a 3rd party hosting service ([nuuls.com](https://nuuls.com/i) is currently supported) and a link will be sendt to the user in chat.
+
 
 ## Dependencies
 * C++17
-* Boost asio
-* Boost beast
+* Boost 1.69.0 Asio
+* Boost 1.69.0 Beast
+* OpenSSL
 * Date https://github.com/HowardHinnant/date
 * OptionParser https://github.com/SaivNator/OptionParser
 * json https://github.com/nlohmann/json
+
+## Build
+You will need cmake 3.13.0 or later and a C++17 compatible compiler.
+
+
+1. Download/compile/git clone dependencies listed above
+2. Git clone https://github.com/SaivNator/SaivBot.git
+3. Run cmake command with dependency locations defined
+
+cmake example
+    
+    cmake ../SaivBot -DCMAKE_CXX_COMPILER=/usr/bin/g++-8 -DJson_INCLUDE_DIRS=../json/include -DDate_INCLUDE_DIRS=../date/include -DOptionParser_INCLUDE_DIRS=../OptionParser/include/ -DBoost_INCLUDE_DIRS=../boost_1_69_0 -DBoost_LIBRARY_DIRS=../boost_1_69_0 -DOpenssl_INCLUDE_DIRS=../openssl-1.1.1a/include/ -DOpenssl_LIBRARY_DIRS=../openssl-1.1.1a
+
+4. Build the project
+
+Linux: 
+    
+    make
+    
+Window: 
+    
+    cmake --build . --config Release
+    cmake --build . --config Debug 
+
+## Run
+Run SaivBot, the program should create a file "Confix.txt" in the same directory as the SaivBot binary then terminate.
+The config file uses json, fill in:
+* nick - username of twitch account
+* password - oauth token of twitch account, can be generated with http://www.twitchapps.com/tmi/
+* channels - list of channels the bot should join when starting up
+* host - domain of the twitch-irc server, usually "irc.chat.twitch.tv"
+* port - connect port (must be ssl), usually "6697"
+* modlist - list of users that have moderator access
+
+Then run SaivBot again, SaivBot should connect to twitch irc.
