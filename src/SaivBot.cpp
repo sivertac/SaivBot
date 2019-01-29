@@ -994,7 +994,7 @@ void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 					lines_found_stream.str(),
 					"i.nuuls.com",
 					"443",
-					"/upload"
+					"/upload?key=dank_password"
 				);
 			}
 			else {
