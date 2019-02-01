@@ -118,19 +118,25 @@ private:
 	
 	/*
 	*/
-	void sendIRC(const std::string & msg);
+	void postSendIRC(std::string && msg);
 	
-	/*
-	*/
-	void sendTimerHandler(
-		boost::system::error_code ec, 
-		std::shared_ptr<boost::asio::system_timer> timer_ptr, 
-		std::shared_ptr<std::string> msg_ptr
-	);
+	void doSendQueue();
+
+	void onSendQueue(boost::beast::error_code ec, std::size_t bytes_transferred);
 
 	/*
 	*/
-	void sendHandler(boost::system::error_code ec, std::size_t ret, std::shared_ptr<std::string> ptr);
+	//void sendTimerHandler(
+	//	boost::system::error_code ec, 
+	//	std::shared_ptr<boost::asio::system_timer> timer_ptr, 
+	//	std::shared_ptr<std::string> msg_ptr
+	//);
+
+
+
+	/*
+	*/
+	//void sendHandler(boost::system::error_code ec, std::size_t ret, std::shared_ptr<std::string> ptr);
 
 	/*
 	Parse buffer stream.
@@ -197,9 +203,13 @@ private:
 	boost::asio::ip::tcp::resolver m_resolver;
 	std::filesystem::path m_config_path;
 	
-	std::mutex m_send_mutex;
-	std::string m_last_message_queued;
-	std::chrono::system_clock::time_point m_next_message_time;
+	boost::asio::io_context::strand m_send_strand;
+	std::queue<std::string> m_send_queue;
+	bool m_send_queue_busy = false;
+	std::string m_last_message_sendt;
+	std::chrono::system_clock::time_point m_last_message_sendt_time;
+	std::chrono::system_clock::duration m_send_message_duration = std::chrono::milliseconds(1500);
+	boost::asio::system_timer m_send_message_timer;
 
 	static const std::size_t m_buffer_size = 10000;
 	std::array<char, m_buffer_size> m_recv_buffer;
@@ -232,7 +242,7 @@ private:
 
 	enum Commands
 	{
-		shutdown = 0,
+		shutdown,
 		help_command,
 		count_command,
 		//search_command,
@@ -267,7 +277,7 @@ private:
 	void sayCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void pingCommandFunc(const IRCMessage & msg, std::string_view input_line);
 
-	const std::array<CommandContainer, Commands::NUMBER_OF_COMMANDS> m_command_containers
+	const std::array<CommandContainer, static_cast<std::size_t>(Commands::NUMBER_OF_COMMANDS)> m_command_containers
 	{
 		CommandContainer("shutdown", "", "Orderly shut down execution and save config.", bindCommand(&SaivBot::shutdownCommandFunc)),
 		CommandContainer("help", "<command>", "Get info about command.", bindCommand(&SaivBot::helpCommandFunc)),
@@ -295,7 +305,8 @@ private:
 			std::function<bool(char, char)>,
 			IRCMessage,
 			TimeDetail::TimePeriod,
-			std::size_t
+			std::size_t,
+			bool
 		>>;
 	void countCommandCallback(
 		Log && log,
@@ -313,7 +324,8 @@ private:
 			IRCMessage,
 			TimeDetail::TimePeriod,
 			std::vector<Log>,
-			std::vector<std::vector<std::reference_wrapper<const Log::LineView>>>
+			std::vector<std::vector<std::reference_wrapper<const Log::LineView>>>,
+			bool
 		>>;
 	void findCommandCallback(
 		Log && log,
@@ -408,6 +420,8 @@ std::size_t countTargetOccurrences(Iterator begin, Iterator end, const Searcher 
 	return count;
 }
 std::size_t countTargetOccurrences(const std::string_view & str, const std::string_view & target);
+
+std::size_t countTargetOccurrences(const std::string_view & str, const std::regex & regex);
 
 /*
 Caseless compare.
