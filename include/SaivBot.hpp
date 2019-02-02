@@ -256,6 +256,8 @@ private:
 		uptime_command,
 		say_command,
 		ping_command,
+		commands_command,
+		flags_command,
 		NUMBER_OF_COMMANDS
 	};
 
@@ -276,6 +278,8 @@ private:
 	void uptimeCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void sayCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void pingCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void commandsCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void flagsCommandFunc(const IRCMessage & msg, std::string_view input_line);
 
 	const std::array<CommandContainer, static_cast<std::size_t>(Commands::NUMBER_OF_COMMANDS)> m_command_containers
 	{
@@ -292,11 +296,12 @@ private:
 		CommandContainer("part", "<channel>", "Part channel.", bindCommand(&SaivBot::partCommandFunc)),
 		CommandContainer("uptime", "", "Get uptime.", bindCommand(&SaivBot::uptimeCommandFunc)),
 		CommandContainer("say", "<stuff to say>", "Make bot say something.", bindCommand(&SaivBot::sayCommandFunc)),
-		CommandContainer("ping", "", "Ping the bot", bindCommand(&SaivBot::pingCommandFunc))
+		CommandContainer("ping", "", "Ping the bot", bindCommand(&SaivBot::pingCommandFunc)),
+		CommandContainer("commands", "", "Get link to commands doc.", bindCommand(&SaivBot::commandsCommandFunc)),
+		CommandContainer("flags", "", "Get link to flags doc.", bindCommand(&SaivBot::flagsCommandFunc))
 	};
 	
 	/*
-	*/
 	using CountCallbackSharedPtr = std::shared_ptr<
 		std::tuple<
 			std::mutex, 
@@ -312,6 +317,44 @@ private:
 		Log && log,
 		CountCallbackSharedPtr ptr
 	);
+	*/
+	struct CountCallbackSharedData
+	{
+		std::mutex mutex;
+		std::size_t reference_count;
+		std::function<std::size_t(std::string_view)> count_func;
+		TimeDetail::TimePeriod period;
+		IRCMessage irc_msg;
+		std::size_t shared_count;
+	};
+
+	void countCommandCallback(
+		Log && log,
+		std::shared_ptr<CountCallbackSharedData> shared_data_ptr
+	)
+	{
+		std::size_t count = 0;
+		try {
+			if (log.isValid()) {
+				for (auto & line : log.getLines()) {
+					if (shared_data_ptr->period.isInside(line.getTime())) {
+						count += shared_data_ptr->count_func(line.getMessageView());
+					}
+				}
+			}
+		}
+		catch (std::exception)
+		{
+		}
+		std::lock_guard<std::mutex> lock(shared_data_ptr->mutex);
+		shared_data_ptr->shared_count += count;
+		--shared_data_ptr->reference_count;
+		if (shared_data_ptr->reference_count <= 0) {
+			std::stringstream reply;
+			reply << shared_data_ptr->irc_msg.getNick() << ", count: " << shared_data_ptr->shared_count;
+			sendPRIVMSG(shared_data_ptr->irc_msg.getParams()[0], reply.str());
+		}
+	}
 
 	/*
 	*/
@@ -345,7 +388,7 @@ private:
 		std::string && str,
 		ClipCallbackSharedPtr ptr
 	);
-
+	
 	/*
 	*/
 	//void linesFromNowCollector(std::size_t lines, )
@@ -419,8 +462,6 @@ std::size_t countTargetOccurrences(Iterator begin, Iterator end, const Searcher 
 	}
 	return count;
 }
-std::size_t countTargetOccurrences(const std::string_view & str, const std::string_view & target);
-
 std::size_t countTargetOccurrences(const std::string_view & str, const std::regex & regex);
 
 /*

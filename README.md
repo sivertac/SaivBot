@@ -4,6 +4,33 @@ The main feature of SaivBot is to lookup data in twitch irc logs. This is done b
 The logs will then be downloaded from a 3rd party twitch chat log host ([justlog](https://api.gempir.com) and [OverRustleLogs](https://overrustlelogs.net)) are currently supported) and will be parsed according to the query.
 Depending on the type of query, the result will either be sendt back directly to the user in twitch chat or the bot will upload the result to a 3rd party hosting service ([nuuls.com](https://nuuls.com/i) is currently supported) and a link will be sendt to the user in chat.
 
+## Commands
+|Command|Arguments|Optional flags|Description|
+|-|-|-|-|
+|shutdown|||Orderly shut down bot.|
+|help|command||Get info about command.|
+|count|target|-channel -user -period -caseless -service -regex|Count the occurrences of target in logs.|
+|find|target|-channel -user -period -caseless -service -regex|Find all lines containing target in logs.|
+|clip||-lines_from_now|Capture a snapshot of chat.|
+|promote|user||Whitelist user.|
+|demote|user||Remove user from whitelist.|
+|join|channel||Join channel.|
+|part|channel||Part channel.|
+|uptime|||Get uptime.|
+|say|string|pajaSx|Make bot say something.|
+|ping|||Ping the bot.|
+|commands|||Get link to commands doc.|
+|flags|||Get link to flags doc.|
+
+## Flags
+|Flag|Arguments|Description|
+|-|-|-|
+|-channel|channel|Specify channel in query.|
+|-user|user|Specify user in query.|
+|-period|start end|Specify time period in query, time points are parsed as "%Y-%m-%d-%H-%M-%S", it is possible to omit parts of the time point right to left. Example: "2018" and "2018-1-1-0-0-0" are parsed as the same.|
+|-caseless||Specify that search target is caseless.|
+|-regex||Specify that search target is a regex string.|
+|-lines_from_now|number|Specify how many lines should be clipped from "now".|
 
 ## Dependencies
 * C++17

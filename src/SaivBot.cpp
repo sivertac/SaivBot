@@ -599,6 +599,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 			return;
 		}
 		
+		/*
 		CountCallbackSharedPtr callback_ptr = std::make_shared<CountCallbackSharedPtr::element_type>();
 		std::get<1>(*callback_ptr) = year_months.size();
 		std::get<2>(*callback_ptr) = std::move(search_str);
@@ -607,15 +608,35 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 		std::get<5>(*callback_ptr) = period;
 		std::get<6>(*callback_ptr) = 0;
 		std::get<7>(*callback_ptr) = regex;
+		*/
+
 
 		//set up log request
 		LogRequest log_request;
 		{
+			auto shared_data_ptr = std::make_shared<CountCallbackSharedData>();
+			shared_data_ptr->reference_count = year_months.size();
+			if (!regex) {
+				shared_data_ptr->count_func = [search_str = std::move(search_str), predicate](std::string_view str) -> std::size_t {
+					auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
+					return countTargetOccurrences(str.begin(), str.end(), searcher);
+				};
+			}
+			else {
+				auto regex_searcher = std::regex(search_str);
+				shared_data_ptr->count_func = [regex_searcher = std::move(regex_searcher)](std::string_view str) -> std::size_t {
+					return countTargetOccurrences(str, regex_searcher);
+				};
+			}
+			shared_data_ptr->period = period;
+			shared_data_ptr->irc_msg = msg;
+			shared_data_ptr->shared_count = 0;
+
 			log_request.m_callback = std::bind(
 				&SaivBot::countCommandCallback,
 				this,
 				std::placeholders::_1,
-				callback_ptr
+				shared_data_ptr
 			);
 
 			std::function<
@@ -681,8 +702,6 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 		std::string channel;
 		std::string user;
 
-		std::function<bool(char, char)> predicate;
-
 		date::year_month_day current_date(date::floor<date::days>(std::chrono::system_clock::now()));
 
 		TimeDetail::TimePeriod period(
@@ -724,6 +743,7 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 			}
 		}
 
+		std::function<bool(char, char)> predicate;
 		if (auto r = set.find<5>()) {
 			predicate = [](char l, char r) {return std::tolower(l) == std::tolower(r); };
 		}
@@ -993,6 +1013,23 @@ void SaivBot::pingCommandFunc(const IRCMessage & msg, std::string_view input_lin
 	sendPRIVMSG(msg.getParams()[0], ss.str());
 }
 
+void SaivBot::commandsCommandFunc(const IRCMessage & msg, std::string_view input_line)
+{
+	const auto commands_url = "https://github.com/SaivNator/SaivBot#commands";
+	std::stringstream ss;
+	ss << msg.getNick() << ", " << commands_url;
+	sendPRIVMSG(msg.getParams()[0], ss.str());
+}
+
+void SaivBot::flagsCommandFunc(const IRCMessage & msg, std::string_view input_line)
+{
+	const auto flags_url = "https://github.com/SaivNator/SaivBot#flags";
+	std::stringstream ss;
+	ss << msg.getNick() << ", " << flags_url;
+	sendPRIVMSG(msg.getParams()[0], ss.str());
+}
+
+/*
 void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
 {
 	std::mutex & mutex = std::get<0>(*ptr);
@@ -1040,6 +1077,7 @@ void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
 		}
 	}
 }
+*/
 
 void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 {
@@ -1155,12 +1193,6 @@ std::vector<date::year_month> SaivBot::periodToYearMonths(const TimeDetail::Time
 		begin_ym += date::months(1);
 	}
 	return year_months;
-}
-
-std::size_t countTargetOccurrences(const std::string_view & str, const std::string_view & target)
-{
-	auto search = std::boyer_moore_searcher(target.begin(), target.end());
-	return countTargetOccurrences(str.begin(), str.end(), search);
 }
 
 std::size_t countTargetOccurrences(const std::string_view & str, const std::regex & regex)
