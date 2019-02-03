@@ -2,7 +2,7 @@
 A twitch-irc bot implemented in C++17.
 The main feature of SaivBot is to lookup data in twitch irc logs. This is done by a user sending a query to the bot (via twitch chat), then the bot will parse the query (using [OptionParser](https://github.com/SaivNator/OptionParser)) and compile a list of relevant logs.
 The logs will then be downloaded from a 3rd party twitch chat log host ([justlog](https://api.gempir.com) and [OverRustleLogs](https://overrustlelogs.net)) are currently supported) and will be parsed according to the query.
-Depending on the type of query, the result will either be sendt back directly to the user in twitch chat or the bot will upload the result to a 3rd party hosting service ([nuuls.com](https://nuuls.com/i) is currently supported) and a link will be sendt to the user in chat.
+Depending on the type of query, the result will either be sent back directly to the user in twitch chat or the bot will upload the result to a 3rd party hosting service ([nuuls.com](https://nuuls.com/i) is currently supported) and a link will be sent to the user in chat.
 
 ## Commands
 |Command|Arguments|Optional flags|Description|
