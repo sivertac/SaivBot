@@ -21,7 +21,7 @@ void workFunc(boost::asio::io_context & ioc)
 			break;
 		}
 		catch (std::exception & e) {
-			std::cerr << "[" << std::this_thread::get_id() << "] " << "Exception thrown: " << e.what() << "\n";
+			std::cout << "[" << std::this_thread::get_id() << "] " << "Exception thrown: " << e.what() << "\n";
 		}
 	}
 }
@@ -35,6 +35,9 @@ int main(int argc, char** argv)
 	SaivBot client(ioc, std::move(ctx), config_path);
 	client.run();
 
+	std::ios::sync_with_stdio(true);
+
+	//unsigned int thread_count = 1;
 	unsigned int thread_count = std::thread::hardware_concurrency();
 	std::cout << "[" << std::this_thread::get_id() << "] " << "Thread count: " << thread_count << "\n";
 	if (thread_count > 0) {
@@ -50,10 +53,11 @@ int main(int argc, char** argv)
 		}
 	}
 	else {
-		std::cerr << "std::this_thread::get_id() error\n";
+		std::cout << "std::this_thread::get_id() error\n";
 	}
 
 	std::cout << "[" << std::this_thread::get_id() << "] " << "Mainthread exit\n";
+
 
 
 	return 0;

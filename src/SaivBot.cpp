@@ -9,6 +9,7 @@ SaivBot::SaivBot(boost::asio::io_context & ioc, boost::asio::ssl::context && ctx
 	m_stream(ioc, m_ctx),
 	m_resolver(ioc),
 	m_config_path(config_path),
+	m_read_strand(ioc),
 	m_send_strand(ioc),
 	m_send_message_timer(ioc)
 {
@@ -65,16 +66,17 @@ void SaivBot::saveConfig(const std::filesystem::path & path)
 
 void SaivBot::run()
 {
-	m_running = true;
-
 	m_resolver.async_resolve(
 		m_host,
 		m_port,
-		std::bind(
-			&SaivBot::resolveHandler,
-			this,
-			std::placeholders::_1,
-			std::placeholders::_2
+		boost::asio::bind_executor(
+			m_read_strand,
+			std::bind(
+				&SaivBot::onResolve,
+				this,
+				std::placeholders::_1,
+				std::placeholders::_2
+			)
 		)
 	);
 }
@@ -84,7 +86,7 @@ SaivBot::~SaivBot()
 	saveConfig(m_config_path);
 }
 
-void SaivBot::resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results)
+void SaivBot::onResolve(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results)
 {
 	if (ec) throw std::runtime_error(ec.message());
 	boost::asio::async_connect(
@@ -92,86 +94,105 @@ void SaivBot::resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp:
 		results.begin(),
 		results.end(),
 		std::bind(
-			&SaivBot::connectHandler,
+			&SaivBot::onConnect,
 			this,
 			std::placeholders::_1
 		)
 	);
 }
 
-void SaivBot::connectHandler(boost::system::error_code ec)
+void SaivBot::onConnect(boost::system::error_code ec)
 {
 	if (ec) throw std::runtime_error(ec.message());
 	m_stream.async_handshake(
 		ssl::stream_base::client,
-		std::bind(
-			&SaivBot::handshakeHandler,
-			this,
-			std::placeholders::_1
+		boost::asio::bind_executor(
+			m_read_strand,
+			std::bind(
+				&SaivBot::onHandshake,
+				this,
+				std::placeholders::_1
+			)
 		)
 	);
 }
 
-void SaivBot::handshakeHandler(boost::system::error_code ec)
+void SaivBot::onHandshake(boost::system::error_code ec)
 {
-	postSendIRC(std::move(std::string("PASS ").append(m_password)));
+	if (ec) throw std::runtime_error(ec.message());
 
-	postSendIRC(std::move(std::string("NICK ").append(m_nick)));
+	//postSendIRC(std::move(std::string("PASS ").append(m_password)));
+	//postSendIRC(std::move(std::string("NICK ").append(m_nick)));
+
+	m_send_queue.emplace(std::move(std::string("PASS ").append(m_password)));
+	m_send_queue.emplace(std::move(std::string("NICK ").append(m_nick)));
+
+	m_suspend_read = false;
+	m_suspend_send = false;
 
 	std::string channel = formatIRCChannelName(m_nick);
+	
 	sendJOIN(channel);
+	
 	sendPRIVMSG(channel, "monkaMEGA");
 
 	for (auto & pair : m_channels) {
 		sendJOIN(pair.first);
 	}
 
-	//sendJOIN("#jtv");
-	sendWHISPERRequest();
+	//sendWHISPERRequest();
 
 	m_time_started = std::chrono::system_clock::now();
 
 	m_stream.async_read_some(
 		boost::asio::buffer(m_recv_buffer),
-		std::bind(
-			&SaivBot::receiveHandler,
-			this,
-			std::placeholders::_1,
-			std::placeholders::_2
+		boost::asio::bind_executor(
+			m_read_strand,
+			std::bind(
+				&SaivBot::onRead,
+				this,
+				std::placeholders::_1,
+				std::placeholders::_2
+			)
 		)
 	);
-	if (ec) throw std::runtime_error(ec.message());
 }
 
-void SaivBot::receiveHandler(boost::system::error_code ec, std::size_t ret)
+void SaivBot::onRead(boost::system::error_code ec, std::size_t bytes_transferred)
 {
-	m_buffer.append(m_recv_buffer.data(), ret);
-	
+	if (ec) {
+		throw std::runtime_error(ec.message());
+	}
+
+	m_buffer.append(m_recv_buffer.data(), bytes_transferred);
 	parseBuffer();
 	consumeMsgBuffer();
 
-	if (!m_running) return;
-	if (!m_stream.next_layer().is_open()) throw std::runtime_error("Unexpected closed socket");
-
-	m_stream.async_read_some(
-		boost::asio::buffer(m_recv_buffer),
-		std::bind(
-			&SaivBot::receiveHandler,
-			this,
-			std::placeholders::_1,
-			std::placeholders::_2
-		)
-	);
-	if (ec) throw std::runtime_error(ec.message());
+	if (!m_suspend_read) {
+		m_stream.async_read_some(
+			boost::asio::buffer(m_recv_buffer),
+			boost::asio::bind_executor(
+				m_read_strand,
+				std::bind(
+					&SaivBot::onRead,
+					this,
+					std::placeholders::_1,
+					std::placeholders::_2
+				)
+			)
+		);
+	}
 }
 
 void SaivBot::postSendIRC(std::string && msg)
 {
 	auto handler = [msg = std::move(msg), this]() {
-		m_send_queue.push(std::move(msg));
-		if (!m_send_queue_busy) {
-			doSendQueue();
-			m_send_queue_busy = true;
+		if (!m_suspend_send) {
+			m_send_queue.push(std::move(msg));
+			if (!m_send_queue_busy) {
+				m_send_queue_busy = true;
+				doSendQueue();
+			}
 		}
 	};
 	boost::asio::post(
@@ -188,6 +209,7 @@ void SaivBot::doSendQueue()
 	auto send_handler = [this]() {
 		const auto transparent = "\x20\xe2\x81\xad";
 		const auto cr = "\r\n";
+
 		std::string & msg = m_send_queue.front();
 		if (msg == m_last_message_sendt) {
 			msg.append(transparent);
@@ -238,6 +260,16 @@ void SaivBot::doSendQueue()
 
 void SaivBot::onSendQueue(boost::beast::error_code ec, std::size_t bytes_transferred)
 {
+	if (m_suspend_send) {
+		boost::asio::post(
+			m_ioc,
+			std::bind(
+				&SaivBot::reconnectHandler,
+				this
+			)
+		);
+		return;
+	}
 	if (ec) {
 		throw std::runtime_error(ec.message());
 	}
@@ -250,30 +282,6 @@ void SaivBot::onSendQueue(boost::beast::error_code ec, std::size_t bytes_transfe
 		doSendQueue();
 	}
 }
-
-
-/*
-void SaivBot::sendTimerHandler(boost::system::error_code ec, std::shared_ptr<boost::asio::system_timer> timer_ptr, std::shared_ptr<std::string> ptr)
-{
-	boost::asio::async_write(
-		m_stream,
-		boost::asio::buffer(*ptr),
-		std::bind(
-			&SaivBot::sendHandler,
-			this,
-			std::placeholders::_1,
-			std::placeholders::_2,
-			ptr
-		)
-	);
-	if (ec) throw std::runtime_error(ec.message());
-}
-*/
-
-//void SaivBot::sendHandler(boost::system::error_code ec, std::size_t ret, std::shared_ptr<std::string> ptr)
-//{
-//	if (ec) throw std::runtime_error(ec.message());
-//}
 
 void SaivBot::parseBuffer()
 {
@@ -354,6 +362,10 @@ void SaivBot::consumeMsgBuffer()
 			if (irc_msg.getCommand() == "PING") {
 				postSendIRC("PONG");
 			}
+			else if (irc_msg.getCommand() == "RECONNECT") {
+				std::cout << "Reconnecting\n";
+				postDoRECONNECT();
+			}
 			else if (caselessCompare(irc_msg.getNick(), m_nick)) {
 				if (irc_msg.getCommand() == "JOIN") {
 					std::string channel(irc_msg.getParams()[0]);
@@ -390,7 +402,7 @@ void SaivBot::parseFreeMessage(const IRCMessage & msg)
 	}	
 }
 
-void SaivBot::sendPRIVMSG(const std::string_view & channel, const std::string_view & msg)
+void SaivBot::sendPRIVMSG(std::string_view channel, std::string_view msg)
 {
 #ifdef SaivBot_TESTMODE
 	postSendIRC(std::move(std::string("PRIVMSG ").append(channel).append(" :").append(msg).append(" TEST")));
@@ -399,12 +411,12 @@ void SaivBot::sendPRIVMSG(const std::string_view & channel, const std::string_vi
 #endif
 }
 
-void SaivBot::sendJOIN(const std::string_view & channel)
+void SaivBot::sendJOIN(std::string_view channel)
 {
 	postSendIRC(std::move(std::string("JOIN ").append(channel)));
 }
 
-void SaivBot::sendPART(const std::string_view & channel)
+void SaivBot::sendPART(std::string_view channel)
 {
 	postSendIRC(std::move(std::string("PART ").append(channel)));
 }
@@ -414,7 +426,7 @@ void SaivBot::sendWHISPERRequest()
 	postSendIRC(std::move(std::string("CAP REQ :twitch.tv/commands")));	
 }
 
-void SaivBot::replyToIRCMessage(const IRCMessage & msg, const std::string_view & reply)
+void SaivBot::replyToIRCMessage(const IRCMessage & msg, std::string_view reply)
 {
 	if (msg.getCommand() == "PRIVMSG") {
 		sendPRIVMSG(msg.getParams()[0], reply);
@@ -427,7 +439,57 @@ void SaivBot::replyToIRCMessage(const IRCMessage & msg, const std::string_view &
 	}
 }
 
-void SaivBot::sendWHISPER(const std::string_view & target, const std::string_view & msg)
+void SaivBot::doShutdown()
+{
+	auto stream_handler = [this](boost::system::error_code ec) {
+		if (ec) {
+			throw std::runtime_error(ec.message());
+		}
+		m_stream.next_layer().close();
+	};
+	m_stream.async_shutdown(
+		stream_handler
+	);
+}
+
+void SaivBot::postDoRECONNECT()
+{
+	auto suspend_write_handler = [this]() {
+		std::cout << "suspend_write_handler\n";
+		m_suspend_send = true;
+		if (!m_send_queue_busy) {
+			boost::asio::post(
+				m_ioc,
+				std::bind(
+					&SaivBot::reconnectHandler,
+					this
+				)
+			);
+		}
+		//else wait for send queue handler to post reconnectHandler
+	};
+
+	m_suspend_read = true;
+
+	boost::asio::post(
+		m_ioc,
+		boost::asio::bind_executor(
+			m_send_strand,
+			suspend_write_handler
+		)
+	);
+}
+
+void SaivBot::reconnectHandler()
+{
+	m_send_queue = std::queue<std::string>();
+
+	m_send_queue_busy = false;
+
+	run();
+}
+
+void SaivBot::sendWHISPER(std::string_view target, std::string_view msg)
 {
 	std::stringstream ss;
 	ss 
@@ -441,14 +503,14 @@ void SaivBot::sendWHISPER(const std::string_view & target, const std::string_vie
 	std::cout << ss.str() << "\n";
 }
 
-bool SaivBot::isModerator(const std::string_view & user)
+bool SaivBot::isModerator(std::string_view user)
 {
 	std::string str;
 	std::transform(user.begin(), user.end(), std::back_inserter(str), ::tolower);
 	return m_modlist.find(str) != m_modlist.end();
 }
 
-bool SaivBot::isWhitelisted(const std::string_view & user)
+bool SaivBot::isWhitelisted(std::string_view user)
 {
 	std::string str;
 	std::transform(user.begin(), user.end(), std::back_inserter(str), ::tolower);
@@ -458,7 +520,7 @@ bool SaivBot::isWhitelisted(const std::string_view & user)
 void SaivBot::shutdownCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
 	if (isModerator(msg.getNick())) {
-		m_running = false;
+		doShutdown();
 	}
 }
 
@@ -1010,7 +1072,7 @@ void SaivBot::pingCommandFunc(const IRCMessage & msg, std::string_view input_lin
 {
 	std::stringstream ss;
 	ss << msg.getNick() << ", " << "PONG NaM \xE2\x80\xBC";	
-	sendPRIVMSG(msg.getParams()[0], ss.str());
+	replyToIRCMessage(msg, ss.str());
 }
 
 void SaivBot::commandsCommandFunc(const IRCMessage & msg, std::string_view input_line)
@@ -1018,7 +1080,7 @@ void SaivBot::commandsCommandFunc(const IRCMessage & msg, std::string_view input
 	const auto commands_url = "https://github.com/SaivNator/SaivBot#commands";
 	std::stringstream ss;
 	ss << msg.getNick() << ", " << commands_url;
-	sendPRIVMSG(msg.getParams()[0], ss.str());
+	replyToIRCMessage(msg, ss.str());
 }
 
 void SaivBot::flagsCommandFunc(const IRCMessage & msg, std::string_view input_line)
@@ -1026,58 +1088,31 @@ void SaivBot::flagsCommandFunc(const IRCMessage & msg, std::string_view input_li
 	const auto flags_url = "https://github.com/SaivNator/SaivBot#flags";
 	std::stringstream ss;
 	ss << msg.getNick() << ", " << flags_url;
-	sendPRIVMSG(msg.getParams()[0], ss.str());
+	replyToIRCMessage(msg, ss.str());
 }
 
-/*
-void SaivBot::countCommandCallback(Log && log, CountCallbackSharedPtr ptr)
+void SaivBot::test_insertmessageCommandFunc(const IRCMessage & msg, std::string_view input_line)
 {
-	std::mutex & mutex = std::get<0>(*ptr);
-	std::size_t & mutex_count = std::get<1>(*ptr);
-	std::string & search_str = std::get<2>(*ptr);
-	auto predicate = std::get<3>(*ptr);
-	const IRCMessage & irc_msg = std::get<4>(*ptr);
-	const TimeDetail::TimePeriod & period = std::get<5>(*ptr);
-	std::size_t & current_count = std::get<6>(*ptr);
-	bool regex = std::get<7>(*ptr);
+	if (isModerator(msg.getUser())) {
+		using namespace OptionParser;
+		Parser parser(Option<StringType>(m_command_containers[Commands::test_insertmessage_command].m_command));
+		auto set = parser.parse(input_line);
+		if (auto result = set.find<0>()) {
+			auto insert_msg_handler = [str = std::string(result->get<0>()), this]() {
+				m_msg_pre_buffer.emplace_back(std::chrono::system_clock::now(), std::move(std::string(str)));
+				consumeMsgBuffer();
+			};
 
-	//count log
-	std::size_t count = 0;
-	if (log.isValid()) {
-		if (!regex) {
-			auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
-			//auto searcher = std::boyer_moore_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
-			//auto searcher = std::boyer_moore_horspool_searcher(search_str.begin(), search_str.end(), std::hash<char>(), predicate);
-			for (auto & line : log.getLines()) {
-				if (period.isInside(line.getTime())) {
-					auto & msg = line.getMessageView();
-					count += countTargetOccurrences(msg.begin(), msg.end(), searcher);
-				}
-			}
-
-		}
-		else {
-			auto searcher = std::regex(search_str);
-			for (auto & line : log.getLines()) {
-				if (period.isInside(line.getTime())) {
-					count += countTargetOccurrences(line.getMessageView(), searcher);
-				}
-			}
-		}
-	}
-
-	{
-		std::lock_guard<std::mutex> lock(mutex);
-		--mutex_count;
-		current_count += count;
-		if (mutex_count == 0) {			
-			std::stringstream reply;
-			reply << irc_msg.getNick() << ", count: " << current_count;
-			sendPRIVMSG(irc_msg.getParams()[0], reply.str());
+			boost::asio::post(
+				m_ioc,
+				boost::asio::bind_executor(
+					m_read_strand,
+					insert_msg_handler
+				)
+			);
 		}
 	}
 }
-*/
 
 void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
 {
@@ -1195,15 +1230,21 @@ std::vector<date::year_month> SaivBot::periodToYearMonths(const TimeDetail::Time
 	return year_months;
 }
 
-std::size_t countTargetOccurrences(const std::string_view & str, const std::regex & regex)
+std::size_t countTargetOccurrences(std::string_view str, const std::regex & regex)
 {
-	std::smatch m;
-	std::string s(str);
-	std::regex_match(s, m, regex);
-	return m.size();
+	std::match_results<std::string_view::const_iterator> m;
+	std::size_t count = 0;
+	auto begin = str.cbegin();
+	auto end = str.cend();
+	while (std::regex_search(begin, end, m, regex)) {
+		++count;
+		begin = m.suffix().first;
+	}
+
+	return count;
 }
 
-bool caselessCompare(const std::string_view & str1, const std::string_view & str2)
+bool caselessCompare(std::string_view str1, std::string_view str2)
 {
 	if (str1.size() != str2.size()) {
 		return false;

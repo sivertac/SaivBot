@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <charconv>
 #include <regex>
+#include <atomic>
 
 //Date
 #include <date/date.h>
@@ -102,19 +103,19 @@ private:
 
 	/*
 	*/
-	void resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results);
+	void onResolve(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results);
 
 	/*
 	*/
-	void connectHandler(boost::system::error_code ec);
+	void onConnect(boost::system::error_code ec);
 
 	/*
 	*/
-	void handshakeHandler(boost::system::error_code ec);
+	void onHandshake(boost::system::error_code ec);
 
 	/*
 	*/
-	void receiveHandler(boost::system::error_code ec, std::size_t ret);
+	void onRead(boost::system::error_code ec, std::size_t bytes_transferred);
 	
 	/*
 	*/
@@ -123,20 +124,6 @@ private:
 	void doSendQueue();
 
 	void onSendQueue(boost::beast::error_code ec, std::size_t bytes_transferred);
-
-	/*
-	*/
-	//void sendTimerHandler(
-	//	boost::system::error_code ec, 
-	//	std::shared_ptr<boost::asio::system_timer> timer_ptr, 
-	//	std::shared_ptr<std::string> msg_ptr
-	//);
-
-
-
-	/*
-	*/
-	//void sendHandler(boost::system::error_code ec, std::size_t ret, std::shared_ptr<std::string> ptr);
 
 	/*
 	Parse buffer stream.
@@ -148,24 +135,23 @@ private:
 	void consumeMsgBuffer();
 
 	/*
-
 	*/
 	void parseFreeMessage(const IRCMessage & msg);
 
 	/*
 	Send PRIVMSG.
 	*/
-	void sendPRIVMSG(const std::string_view & channel, const std::string_view & msg);
+	void sendPRIVMSG(std::string_view channel, std::string_view msg);
 
 	/*
 	Send JOIN.
 	*/
-	void sendJOIN(const std::string_view & channel);
+	void sendJOIN(std::string_view channel);
 
 	/*
 	Send PART.
 	*/
-	void sendPART(const std::string_view & channel);
+	void sendPART(std::string_view channel);
 
 	/*
 	Send "CAP REQ :twitch.tv/commands"
@@ -175,27 +161,30 @@ private:
 	/*
 	Send WHISPER
 	*/
-	void sendWHISPER(const std::string_view & target, const std::string_view & msg);
+	void sendWHISPER(std::string_view target, std::string_view msg);
 
 	/*
 	Reply to IRCMessage.
 	If message is from channel, then reply in that channel.
 	If message is a whisper, then reply to whisper.
 	*/
-	void replyToIRCMessage(const IRCMessage & msg, const std::string_view & reply);
+	void replyToIRCMessage(const IRCMessage & msg, std::string_view reply);
+
+	void doShutdown();
+
+	void postDoRECONNECT();
+
+	void reconnectHandler();
 
 	/*
 	Check if user is moderator.
 	*/
-	bool isModerator(const std::string_view & user);
+	bool isModerator(std::string_view user);
 
 	/*
 	Check if user is whitelisted.
 	*/
-	bool isWhitelisted(const std::string_view & user);
-
-	/////
-	bool m_running = false;
+	bool isWhitelisted(std::string_view user);
 
 	boost::asio::io_context & m_ioc;
 	boost::asio::ssl::context m_ctx;
@@ -203,9 +192,12 @@ private:
 	boost::asio::ip::tcp::resolver m_resolver;
 	std::filesystem::path m_config_path;
 	
+	boost::asio::io_context::strand m_read_strand;
 	boost::asio::io_context::strand m_send_strand;
-	std::queue<std::string> m_send_queue;
+	bool m_suspend_read = true;
+	bool m_suspend_send = true;
 	bool m_send_queue_busy = false;
+	std::queue<std::string> m_send_queue;
 	std::string m_last_message_sendt;
 	std::chrono::system_clock::time_point m_last_message_sendt_time;
 	std::chrono::system_clock::duration m_send_message_duration = std::chrono::milliseconds(1500);
@@ -235,7 +227,7 @@ private:
 	Bind command
 	*/
 	template <typename FuncPtr>
-	constexpr CommandContainer::FuncType  bindCommand(FuncPtr func)
+	constexpr CommandContainer::FuncType bindCommand(FuncPtr func)
 	{
 		return std::bind(func, this, std::placeholders::_1, std::placeholders::_2);
 	}
@@ -258,6 +250,7 @@ private:
 		ping_command,
 		commands_command,
 		flags_command,
+		test_insertmessage_command,
 		NUMBER_OF_COMMANDS
 	};
 
@@ -280,6 +273,7 @@ private:
 	void pingCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void commandsCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void flagsCommandFunc(const IRCMessage & msg, std::string_view input_line);
+	void test_insertmessageCommandFunc(const IRCMessage & msg, std::string_view input_line);
 
 	const std::array<CommandContainer, static_cast<std::size_t>(Commands::NUMBER_OF_COMMANDS)> m_command_containers
 	{
@@ -298,26 +292,10 @@ private:
 		CommandContainer("say", "<stuff to say>", "Make bot say something.", bindCommand(&SaivBot::sayCommandFunc)),
 		CommandContainer("ping", "", "Ping the bot", bindCommand(&SaivBot::pingCommandFunc)),
 		CommandContainer("commands", "", "Get link to commands doc.", bindCommand(&SaivBot::commandsCommandFunc)),
-		CommandContainer("flags", "", "Get link to flags doc.", bindCommand(&SaivBot::flagsCommandFunc))
+		CommandContainer("flags", "", "Get link to flags doc.", bindCommand(&SaivBot::flagsCommandFunc)),
+		CommandContainer("test_insertmessage", "<string>", "insert IRCMessage in receive queue.", bindCommand(&SaivBot::test_insertmessageCommandFunc))
 	};
-	
-	/*
-	using CountCallbackSharedPtr = std::shared_ptr<
-		std::tuple<
-			std::mutex, 
-			std::size_t, 
-			std::string,
-			std::function<bool(char, char)>,
-			IRCMessage,
-			TimeDetail::TimePeriod,
-			std::size_t,
-			bool
-		>>;
-	void countCommandCallback(
-		Log && log,
-		CountCallbackSharedPtr ptr
-	);
-	*/
+
 	struct CountCallbackSharedData
 	{
 		std::mutex mutex;
@@ -462,15 +440,15 @@ std::size_t countTargetOccurrences(Iterator begin, Iterator end, const Searcher 
 	}
 	return count;
 }
-std::size_t countTargetOccurrences(const std::string_view & str, const std::regex & regex);
+std::size_t countTargetOccurrences(std::string_view str, const std::regex & regex);
 
 /*
 Caseless compare.
 */
-bool caselessCompare(const std::string_view & str1, const std::string_view & str2);
+bool caselessCompare(std::string_view str1, std::string_view str2);
 
 //to lower case string.
-inline std::string toLowerCaseString(const std::string_view & source)
+inline std::string toLowerCaseString(std::string_view source)
 {
 	std::string str;
 	std::transform(source.begin(), source.end(), std::back_inserter(str), ::tolower);
@@ -478,7 +456,7 @@ inline std::string toLowerCaseString(const std::string_view & source)
 }
 
 //Format string to twitch irc channel name format. 
-inline std::string formatIRCChannelName(const std::string_view & source)
+inline std::string formatIRCChannelName(std::string_view source)
 {
 	if (source.empty()) return std::string("#");
 	if (source[0] == '#') return toLowerCaseString(source);
