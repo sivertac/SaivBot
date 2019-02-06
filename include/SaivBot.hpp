@@ -334,28 +334,67 @@ private:
 		}
 	}
 
-	/*
-	*/
-	using FindCallbackSharedPtr = std::shared_ptr<
-		std::tuple<
-			std::mutex,
-			std::size_t,
-			std::string,
-			std::function<bool(char, char)>,
-			IRCMessage,
-			TimeDetail::TimePeriod,
-			std::vector<Log>,
-			std::vector<std::vector<std::reference_wrapper<const Log::LineView>>>,
-			bool
-		>>;
+	struct FindCallbackSharedData
+	{
+		std::mutex mutex;
+		std::size_t reference_count;
+		//bool find_func(data_view)
+		std::function<bool(std::string_view)> find_func;
+		//string dump_func(shared_lines_found);
+		std::function<std::string(std::vector<Log::Line>&)> dump_func;
+		TimeDetail::TimePeriod period;
+		IRCMessage irc_msg;
+		std::vector<Log::Line> shared_lines_found;
+	};
+
 	void findCommandCallback(
 		Log && log,
-		FindCallbackSharedPtr ptr
-	);
-	void findCommandCallback2(
-		std::string && str,
-		FindCallbackSharedPtr ptr
-	);
+		std::shared_ptr<FindCallbackSharedData> shared_data_ptr
+	)
+	{
+		decltype(shared_data_ptr->shared_lines_found) lines_found;
+		try {
+			if (log.isValid()) {
+				for (auto & line : log.getLines()) {
+					if (shared_data_ptr->period.isInside(line.getTime())) {
+						if (shared_data_ptr->find_func(line.getMessageView())) {
+							lines_found.emplace_back(line);
+						}
+					}
+				}
+			}
+		}
+		catch (std::exception) {
+		}
+
+		std::lock_guard<std::mutex> lock(shared_data_ptr->mutex);
+		--shared_data_ptr->reference_count;
+
+		if (!lines_found.empty()) {
+			shared_data_ptr->shared_lines_found.insert(shared_data_ptr->shared_lines_found.end(), lines_found.begin(), lines_found.end());
+		}
+
+		if (shared_data_ptr->reference_count == 0) {
+			if (!shared_data_ptr->shared_lines_found.empty()) {
+				std::string str = shared_data_ptr->dump_func(shared_data_ptr->shared_lines_found);
+				auto upload_handler = [irc_msg = std::move(shared_data_ptr->irc_msg), this](std::string && str) {
+					nuulsServerReply(str, irc_msg);
+				};
+				std::make_shared<DankHttp::NuulsUploader>(m_ioc)->run(
+					upload_handler,
+					std::move(str),
+					"i.nuuls.com",
+					"443",
+					"/upload?key=dank_password"
+				);
+			}
+			else {
+				std::stringstream reply;
+				reply << shared_data_ptr->irc_msg.getNick() << ", no hit NaM";
+				replyToIRCMessage(shared_data_ptr->irc_msg, reply.str());
+			}
+		}
+	}
 
 	/*
 	*/

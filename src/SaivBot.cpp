@@ -483,9 +483,7 @@ void SaivBot::postDoRECONNECT()
 void SaivBot::reconnectHandler()
 {
 	m_send_queue = std::queue<std::string>();
-
 	m_send_queue_busy = false;
-
 	run();
 }
 
@@ -846,23 +844,48 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 			return;
 		}
 
-		FindCallbackSharedPtr callback_ptr = std::make_shared<FindCallbackSharedPtr::element_type>();
-		std::get<1>(*callback_ptr) = year_months.size();
-		std::get<2>(*callback_ptr) = std::move(search_str);
-		std::get<3>(*callback_ptr) = predicate;
-		std::get<4>(*callback_ptr) = msg;
-		std::get<5>(*callback_ptr) = period;
-
-		std::get<8>(*callback_ptr) = regex;
-
 		//set up log request
 		LogRequest log_request;
 		{
+			auto shared_data_ptr = std::make_shared<FindCallbackSharedData>();
+			shared_data_ptr->reference_count = year_months.size();
+			if (!regex) {
+				shared_data_ptr->find_func = [search_str = std::move(search_str), predicate](std::string_view str)->std::size_t {
+					auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
+					return std::search(str.begin(), str.end(), searcher) != str.end();
+				};
+			}
+			else {
+				auto regex_searcher = std::regex(search_str);	
+				shared_data_ptr->find_func = [regex_searcher = std::move(regex_searcher)](std::string_view str)->std::size_t {
+					return std::regex_match(str.begin(), str.end(), regex_searcher);
+				};
+			}
+			shared_data_ptr->dump_func = [](std::vector<Log::Line> & lines) {
+				
+				std::cout << lines.size() << "\n";
+				std::sort(
+					lines.begin(),
+					lines.end(),
+					[](auto & a, auto & b) {return a.getTime() < b.getTime(); }
+				);
+				std::stringstream ss;
+				for (auto & line : lines) {
+					using namespace date;
+					ss << line.getTime() << ": " << line.getMessageView() << "\n";
+				}
+				return ss.str();
+			};
+
+			shared_data_ptr->period = period;
+			shared_data_ptr->irc_msg = msg;
+			
+
 			log_request.m_callback = std::bind(
 				&SaivBot::findCommandCallback,
 				this,
 				std::placeholders::_1,
-				callback_ptr
+				shared_data_ptr
 			);
 
 			std::function<
@@ -1114,96 +1137,6 @@ void SaivBot::test_insertmessageCommandFunc(const IRCMessage & msg, std::string_
 	}
 }
 
-void SaivBot::findCommandCallback(Log && log, FindCallbackSharedPtr ptr)
-{
-	std::mutex & mutex = std::get<0>(*ptr);
-	std::size_t & mutex_count = std::get<1>(*ptr);
-	std::string & search_str = std::get<2>(*ptr);
-	auto predicate = std::get<3>(*ptr);
-	const IRCMessage & irc_msg = std::get<4>(*ptr);
-	const TimeDetail::TimePeriod & period = std::get<5>(*ptr);
-	std::vector<Log> & log_container = std::get<6>(*ptr);
-	std::vector<std::vector<std::reference_wrapper<const Log::LineView>>> & lineviewref_vec = std::get<7>(*ptr);
-	bool regex = std::get<8>(*ptr);
-
-	//find relevant lines
-	std::vector<std::reference_wrapper<const Log::LineView>> lines_found;
-	if (!regex) {
-		auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
-		if (log.isValid()) {
-			for (auto & line : log.getLines()) {
-				if (period.isInside(line.getTime())) {
-					auto & msg = line.getMessageView();
-					if (std::search(msg.begin(), msg.end(), searcher) != msg.end()) {
-						lines_found.push_back(line);
-					}
-				}
-			}
-		}
-	}
-	else {
-		std::regex searcher(search_str);
-		for (auto & line : log.getLines()) {
-			if (period.isInside(line.getTime())) {
-				std::string s(line.getMessageView());
-				if (std::regex_search(s, searcher)) {
-					lines_found.push_back(line);
-				}
-			}
-		}
-	}
-
-	{
-		std::lock_guard<std::mutex> lock(mutex);
-		--mutex_count;
-		
-		if (!lines_found.empty()) {
-			log_container.push_back(std::move(log));
-			lineviewref_vec.push_back(std::move(lines_found));
-		}
-
-		if (mutex_count == 0) {
-			if (!lineviewref_vec.empty()) {
-				std::vector<std::reference_wrapper<const Log::LineView>> all_lines;
-				for (auto & v : lineviewref_vec) {
-					all_lines.insert(all_lines.end(), v.begin(), v.end());
-				}
-				std::sort(all_lines.begin(), all_lines.end(), [](auto & a, auto & b) {return a.get().getTime() < b.get().getTime(); });
-
-				std::stringstream lines_found_stream;
-
-				for (auto & line : all_lines) {
-					using namespace date;
-					lines_found_stream << line.get().getTime() << ": " << line.get().getMessageView() << "\n";
-				}
-
-				std::make_shared<DankHttp::NuulsUploader>(m_ioc)->run(
-					std::bind(
-						&SaivBot::findCommandCallback2,
-						this,
-						std::placeholders::_1,
-						ptr
-					),
-					lines_found_stream.str(),
-					"i.nuuls.com",
-					"443",
-					"/upload?key=dank_password"
-				);
-			}
-			else {
-				std::stringstream reply;
-				reply << irc_msg.getNick() << ", no hit NaM";
-				sendPRIVMSG(irc_msg.getParams()[0], reply.str());
-			}
-		}
-	}
-}
-
-void SaivBot::findCommandCallback2(std::string && str, FindCallbackSharedPtr ptr)
-{
-	nuulsServerReply(str, std::get<4>(*ptr));
-}
-
 void SaivBot::clipCommandCallback(std::string && str, ClipCallbackSharedPtr ptr)
 {
 	nuulsServerReply(str, *ptr);
@@ -1212,7 +1145,7 @@ void SaivBot::nuulsServerReply(const std::string & str, const IRCMessage & msg)
 {
 	std::stringstream reply;
 	reply << msg.getNick() << ", " << str;
-	sendPRIVMSG(msg.getParams()[0], reply.str());
+	replyToIRCMessage(msg, reply.str());
 }
 
 std::vector<date::year_month> SaivBot::periodToYearMonths(const TimeDetail::TimePeriod & period)
