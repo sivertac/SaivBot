@@ -296,6 +296,64 @@ private:
 		CommandContainer("test_insertmessage", "<string>", "insert IRCMessage in receive queue.", bindCommand(&SaivBot::test_insertmessageCommandFunc))
 	};
 
+	void fillLogRequestTargetFields(
+		LogRequest & log_request,
+		const LogService service,
+		const bool all_users,
+		const TimeDetail::TimePeriod & period,
+		const std::vector<std::string_view> & channels,
+		const std::vector<std::string_view> & users
+	)
+	{
+		auto generate_year_month_user_list = [&period, &channels, &users, this](auto func) -> std::vector<LogRequest::Target> {
+			auto year_months = periodToYearMonths(period);
+			std::vector<LogRequest::Target> vec;
+			for (auto & channel : channels) {
+				for (auto & user : users) {
+					for (auto & ym : year_months) {
+						vec.emplace_back(TimeDetail::createYearMonthPeriod(ym), func(channel, user, ym));
+					}
+				}
+			}
+			return vec;
+		};
+		auto generate_date_list = [&period, &channels, this](auto func) -> std::vector<LogRequest::Target> {
+			auto dates = periodToDates(period);
+			std::vector<LogRequest::Target> vec;
+			for (auto & channel : channels) {
+				for (auto & date : dates) {
+					vec.emplace_back(TimeDetail::createYearMonthDayPeriod(date), func(channel, date));
+				}
+			}
+			return vec;
+		};
+		if (service == LogService::gempir_log) {
+			log_request.parser = gempirLogParser;
+			log_request.host = "api.gempir.com";
+			log_request.port = "443";
+			if (!all_users) {
+				log_request.targets = generate_year_month_user_list(createGempirUserTarget);
+			}
+			else {
+				log_request.targets = generate_date_list(createGempirChannelTarget);
+			}
+		}
+		else if (service == LogService::overrustle_log) {
+			log_request.parser = overrustleLogParser;
+			log_request.host = "overrustlelogs.net";
+			log_request.port = "443";
+			if (!all_users) {
+				log_request.targets = generate_year_month_user_list(createOverrustleUserTarget);
+			}
+			else {
+				log_request.targets = generate_date_list(createOverrustleChannelTarget);
+			}
+		}
+		else {
+			assert(false);
+		}	
+	}
+
 	struct CountCallbackSharedData
 	{
 		std::mutex mutex;
@@ -325,13 +383,27 @@ private:
 		{
 		}
 		std::lock_guard<std::mutex> lock(shared_data_ptr->mutex);
-		shared_data_ptr->shared_count += count;
-		--shared_data_ptr->reference_count;
-		if (shared_data_ptr->reference_count <= 0) {
-			std::stringstream reply;
-			reply << shared_data_ptr->irc_msg.getNick() << ", count: " << shared_data_ptr->shared_count;
-			sendPRIVMSG(shared_data_ptr->irc_msg.getParams()[0], reply.str());
+		if (shared_data_ptr->reference_count > 0) {
+			shared_data_ptr->shared_count += count;
+			--shared_data_ptr->reference_count;
+			if (shared_data_ptr->reference_count <= 0) {
+				std::stringstream reply;
+				reply << shared_data_ptr->irc_msg.getNick() << ", count: " << shared_data_ptr->shared_count;
+				sendPRIVMSG(shared_data_ptr->irc_msg.getParams()[0], reply.str());
+			}
 		}
+	}
+
+	void countCommandErrorHandler(std::shared_ptr<CountCallbackSharedData> shared_data_ptr)
+	{
+		std::lock_guard<std::mutex> lock(shared_data_ptr->mutex);
+		shared_data_ptr->reference_count = 0;
+		std::stringstream reply;
+		reply
+			<< shared_data_ptr->irc_msg.getNick()
+			<< ", "
+			<< "Error while downloading log NaM";
+		replyToIRCMessage(shared_data_ptr->irc_msg, reply.str());
 	}
 
 	struct FindCallbackSharedData
@@ -368,32 +440,44 @@ private:
 		}
 
 		std::lock_guard<std::mutex> lock(shared_data_ptr->mutex);
-		--shared_data_ptr->reference_count;
-
-		if (!lines_found.empty()) {
-			shared_data_ptr->shared_lines_found.insert(shared_data_ptr->shared_lines_found.end(), lines_found.begin(), lines_found.end());
-		}
-
-		if (shared_data_ptr->reference_count == 0) {
-			if (!shared_data_ptr->shared_lines_found.empty()) {
-				std::string str = shared_data_ptr->dump_func(shared_data_ptr->shared_lines_found);
-				auto upload_handler = [irc_msg = std::move(shared_data_ptr->irc_msg), this](std::string && str) {
-					nuulsServerReply(str, irc_msg);
-				};
-				std::make_shared<DankHttp::NuulsUploader>(m_ioc)->run(
-					upload_handler,
-					std::move(str),
-					"i.nuuls.com",
-					"443",
-					"/upload?key=dank_password"
-				);
+		if (shared_data_ptr->reference_count > 0) {
+			--shared_data_ptr->reference_count;
+			if (!lines_found.empty()) {
+				shared_data_ptr->shared_lines_found.insert(shared_data_ptr->shared_lines_found.end(), lines_found.begin(), lines_found.end());
 			}
-			else {
-				std::stringstream reply;
-				reply << shared_data_ptr->irc_msg.getNick() << ", no hit NaM";
-				replyToIRCMessage(shared_data_ptr->irc_msg, reply.str());
+			if (shared_data_ptr->reference_count == 0) {
+				if (!shared_data_ptr->shared_lines_found.empty()) {
+					std::string str = shared_data_ptr->dump_func(shared_data_ptr->shared_lines_found);
+					auto upload_handler = [irc_msg = std::move(shared_data_ptr->irc_msg), this](std::string && str) {
+						nuulsServerReply(str, irc_msg);
+					};
+					std::make_shared<DankHttp::NuulsUploader>(m_ioc)->run(
+						upload_handler,
+						std::move(str),
+						"i.nuuls.com",
+						"443",
+						"/upload?key=dank_password"
+					);
+				}
+				else {
+					std::stringstream reply;
+					reply << shared_data_ptr->irc_msg.getNick() << ", no hit NaM";
+					replyToIRCMessage(shared_data_ptr->irc_msg, reply.str());
+				}
 			}
 		}
+	}
+
+	void findCommandErrorHandler(std::shared_ptr<FindCallbackSharedData> shared_data_ptr)
+	{
+		std::lock_guard<std::mutex> lock(shared_data_ptr->mutex);
+		shared_data_ptr->reference_count = 0;
+		std::stringstream reply;
+		reply
+			<< shared_data_ptr->irc_msg.getNick()
+			<< ", "
+			<< "Error while downloading log NaM";
+		replyToIRCMessage(shared_data_ptr->irc_msg, reply.str());
 	}
 
 	/*
@@ -406,17 +490,11 @@ private:
 		ClipCallbackSharedPtr ptr
 	);
 	
-	/*
-	*/
-	//void linesFromNowCollector(std::size_t lines, )
-
-	/*
-	*/
 	void nuulsServerReply(const std::string & str, const IRCMessage & msg);
 
-	/*
-	*/
 	std::vector<date::year_month> periodToYearMonths(const TimeDetail::TimePeriod & period);
+	
+	std::vector<date::year_month_day> periodToDates(const TimeDetail::TimePeriod & period);
 };
 
 /*

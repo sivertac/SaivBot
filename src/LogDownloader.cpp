@@ -228,15 +228,15 @@ void LogDownloader::run(LogRequest && request)
 {
 	m_request = std::move(request);
 
-	if (!SSL_set_tlsext_host_name(m_stream->native_handle(), m_request.m_host.c_str())) {
+	if (!SSL_set_tlsext_host_name(m_stream->native_handle(), m_request.host.c_str())) {
 		boost::system::error_code ec{ static_cast<int>(::ERR_get_error()), boost::asio::error::get_ssl_category() };
 		std::cerr << ec.message() << "\n";
 		return;
 	}
 
 	m_resolver.async_resolve(
-		m_request.m_host,
-		m_request.m_port,
+		m_request.host,
+		m_request.port,
 		std::bind(
 			&LogDownloader::resolveHandler,
 			shared_from_this(),
@@ -246,9 +246,19 @@ void LogDownloader::run(LogRequest && request)
 	);
 }
 
+void LogDownloader::errorHandler(boost::system::error_code ec)
+{
+	m_request.error_handler();
+	std::stringstream ss;
+	ss << "LogDownloader error: " << ec.message() << "\n";
+	throw std::runtime_error(ss.str());
+}
+
 void LogDownloader::resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results)
 {
-	if (ec) throw std::runtime_error(ec.message());
+	if (ec) {
+		errorHandler(ec);
+	}
 	boost::asio::async_connect(
 		m_stream->next_layer(),
 		results.begin(),
@@ -263,7 +273,9 @@ void LogDownloader::resolveHandler(boost::system::error_code ec, boost::asio::ip
 
 void LogDownloader::connectHandler(boost::system::error_code ec)
 {
-	if (ec) throw std::runtime_error(ec.message());
+	if (ec) {
+		errorHandler(ec);
+	}
 	m_stream->async_handshake(
 		ssl::stream_base::client,
 		std::bind(
@@ -276,9 +288,10 @@ void LogDownloader::connectHandler(boost::system::error_code ec)
 
 void LogDownloader::handshakeHandler(boost::system::error_code ec)
 {
-	if (ec) throw std::runtime_error(ec.message());
-
-	auto it = m_request.m_targets.cbegin();
+	if (ec) {
+		errorHandler(ec);
+	}
+	auto it = m_request.targets.cbegin();
 	fillHttpRequest(*it);
 	boost::beast::http::async_write(
 		*m_stream,
@@ -295,7 +308,9 @@ void LogDownloader::handshakeHandler(boost::system::error_code ec)
 
 void LogDownloader::writeHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it)
 {
-	if (ec) throw std::runtime_error(ec.message());
+	if (ec) {
+		errorHandler(ec);
+	}
 	boost::ignore_unused(bytes_transferred);
 	boost::beast::http::async_read(
 		*m_stream, 
@@ -313,8 +328,9 @@ void LogDownloader::writeHandler(boost::system::error_code ec, std::size_t bytes
 
 void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it)
 {
-	if (ec) throw std::runtime_error(ec.message());
-
+	if (ec) {
+		errorHandler(ec);
+	}
 	boost::ignore_unused(bytes_transferred);
 
 	std::lock_guard<std::mutex> lock(m_read_handler_mutex);
@@ -325,7 +341,7 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 	
 	auto next_it = std::next(it);
 	
-	if (next_it != m_request.m_targets.cend()) {
+	if (next_it != m_request.targets.cend()) {
 		fillHttpRequest(*next_it);
 		boost::beast::http::async_write(
 			*m_stream,
@@ -349,24 +365,24 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 		);
 	}
 	
-	Log log(it->first, std::move(temp_data), m_request.m_parser);
+	Log log(it->first, std::move(temp_data), m_request.parser);
 
-	m_request.m_callback(std::move(log));
+	m_request.callback(std::move(log));
 }
 
 void LogDownloader::shutdownHandler(boost::system::error_code ec)
 {
-	//if (ec && ec.value() != boost::asio::ssl::error::stream_truncated) throw std::runtime_error(ec.message());
-	if (ec) throw std::runtime_error(ec.message());
+	if (ec && ec.value() != boost::asio::ssl::error::stream_truncated) throw std::runtime_error(ec.message());
+	//if (ec) throw std::runtime_error(ec.message());
 }
 
 void LogDownloader::fillHttpRequest(const LogRequest::Target & target)
 {
 	m_http_request = HttpRequestType();
-	m_http_request.version(m_request.m_version);
+	m_http_request.version(m_request.version);
 	m_http_request.method(boost::beast::http::verb::get);
 	m_http_request.target(target.second);
-	m_http_request.set(boost::beast::http::field::host, m_request.m_host);
+	m_http_request.set(boost::beast::http::field::host, m_request.host);
 	m_http_request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
 }
 
@@ -387,6 +403,7 @@ std::string createGempirUserTarget(const std::string_view & channel, const std::
 
 std::string createGempirChannelTarget(const std::string_view & channel, const date::year_month_day & date)
 {
+	//https://api.gempir.com/channel/pajlada/2019/2/8
 	std::stringstream target;
 	target
 		<< "/channel/"
@@ -394,7 +411,7 @@ std::string createGempirChannelTarget(const std::string_view & channel, const da
 		<< "/"
 		<< std::to_string(static_cast<int>(date.year()))
 		<< "/"
-		<< TimeDetail::monthToString(date.month())
+		<< std::to_string(static_cast<unsigned int>(date.month()))
 		<< "/"
 		<< std::to_string(static_cast<unsigned int>(date.day()));
 	return target.str();

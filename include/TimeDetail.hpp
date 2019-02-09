@@ -201,6 +201,14 @@ namespace TimeDetail
 		TimeDetail::TimePoint time_end = date::sys_days(date_end);
 		return TimeDetail::TimePeriod(time_begin, time_end);
 	}
+
+	inline TimePeriod createYearMonthDayPeriod(const date::year_month_day & date)
+	{
+		auto day = date::sys_days{ date };
+		TimeDetail::TimePoint begin = day;
+		TimeDetail::TimePoint end = day + date::days(1);
+		return TimeDetail::TimePeriod(begin, end);
+	}
 };
 
 #endif // !TimeDetail_HEADER

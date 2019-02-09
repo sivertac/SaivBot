@@ -35,17 +35,25 @@
 #include "TimeDetail.hpp"
 #include "Log.hpp"
 
+enum class LogService
+{
+	gempir_log,
+	overrustle_log
+};
+
 struct LogRequest
 {
 	using CallbackType = std::function<void(Log&&)>;
+	using ErrorHandlerType = std::function<void()>;
 	using Target = std::pair<TimeDetail::TimePeriod, std::string>;
 	using TargetIterator = std::vector<Target>::const_iterator;
-	CallbackType m_callback;
-	Log::ParserFunc m_parser;
-	std::string m_host;
-	std::string m_port;
-	std::vector<Target> m_targets;
-	int m_version = 11;
+	CallbackType callback;
+	ErrorHandlerType error_handler;
+	Log::ParserFunc parser;
+	std::string host;
+	std::string port;
+	std::vector<Target> targets;
+	int version = 11;
 };
 
 class LogDownloader : public std::enable_shared_from_this<LogDownloader>
@@ -60,6 +68,8 @@ public:
 	void run(LogRequest && request);
 
 private:
+	void errorHandler(boost::system::error_code ec);
+
 	void resolveHandler(boost::system::error_code ec, boost::asio::ip::tcp::resolver::results_type results);
 
 	void connectHandler(boost::system::error_code ec);
