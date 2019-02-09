@@ -817,22 +817,25 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 					return std::regex_match(str.begin(), str.end(), regex_searcher);
 				};
 			}
-			shared_data_ptr->dump_func = [](std::vector<Log::Line> & lines) {
+			shared_data_ptr->dump_func = [](FindCallbackSharedData::SharedLinesFound & lines) {
 				std::sort(
 					lines.begin(),
 					lines.end(),
-					[](auto & a, auto & b) {return a.getTime() < b.getTime(); }
+					[](auto & a, auto & b) {return std::get<1>(a).getTime() < std::get<1>(b).getTime(); }
 				);
 				std::stringstream ss;
-				for (auto & line : lines) {
+				for (auto & tuple : lines) {
 					using namespace date;
-					ss << line.getTime() << " " << line.getNameView() << ": " << line.getMessageView() << "\n";
+					auto & channel_name = *std::get<0>(tuple);
+					auto & line = std::get<1>(tuple);
+					ss << line.getTime() << " #" << channel_name << " " << line.getNameView() << ": " << line.getMessageView() << "\n";
 				}
 				return ss.str();
 			};
 
 			shared_data_ptr->period = period;
 			shared_data_ptr->irc_msg = msg;
+			shared_data_ptr->channels = FindCallbackSharedData::ChannelSet(channels.begin(), channels.end());
 			
 			log_request.callback = std::bind(
 				&SaivBot::findCommandCallback,

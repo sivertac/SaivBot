@@ -9,15 +9,15 @@ Depending on the type of query, the result will either be sent back directly to 
 |-|-|-|-|
 |shutdown|||Orderly shut down bot.|
 |help|command||Get info about command.|
-|count|target|-channel -user -period -caseless -service -regex|Count the occurrences of target in logs.|
-|find|target|-channel -user -period -caseless -service -regex|Find all lines containing target in logs.|
+|count|target|-channel -user -allusers -period -caseless -service -regex|Count the occurrences of target in logs.|
+|find|target|-channel -user -allusers -period -caseless -service -regex|Find all lines containing target in logs.|
 |clip||-lines_from_now|Capture a snapshot of chat.|
 |promote|user||Whitelist user.|
 |demote|user||Remove user from whitelist.|
 |join|channel||Join channel.|
 |part|channel||Part channel.|
 |uptime|||Get uptime.|
-|say|string|pajaSx|Make bot say something.|
+|say|string||Make bot say something.|
 |ping|||Ping the bot.|
 |commands|||Get link to commands doc.|
 |flags|||Get link to flags doc.|
@@ -25,12 +25,24 @@ Depending on the type of query, the result will either be sent back directly to 
 ## Flags
 |Flag|Arguments|Description|
 |-|-|-|
-|-channel|channel|Specify channel in query.|
-|-user|user|Specify user in query.|
+|-channel|channel \| list of channels|Specify channel in query.|
+|-user|user \| list of users|Specify user in query.|
+|-allusers||Specify to search in channel logs.|
 |-period|start end|Specify time period in query, time points are parsed as "%Y-%m-%d-%H-%M-%S", it is possible to omit parts of the time point right to left. Example: "2018" and "2018-1-1-0-0-0" are parsed as the same.|
 |-caseless||Specify that search target is caseless.|
 |-regex||Specify that search target is a regex string.|
 |-lines_from_now|number|Specify how many lines should be clipped from "now".|
+
+## Example commands
+Count how many times the user "SaivNator" has used the word "This" in the time period 1/2/2019 00:00-UTC to 2019-2-9 00:00-UTC
+
+	SaivBot count "This" -user SaivNator -channel SaivBot -period 2019-2-1 2019-2-9 -caseless
+
+Find all chat lines that contains a http/https url in the time period 31/12/2018 18:00-UTC to 1/1/2019 06:00-UTC
+
+	SaivBot find "https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)" -regex -allusers -period 2018-12-31-18 2019-1-1-6
+
+
 
 ## Dependencies
 * C++17
@@ -50,19 +62,19 @@ You will need cmake 3.13.0 or later and a C++17 compatible compiler.
 3. Run cmake command with dependency locations defined
 
 cmake example
-    
-    cmake ../SaivBot -DCMAKE_CXX_COMPILER=/usr/bin/g++-8 -DJson_INCLUDE_DIRS=../json/include -DDate_INCLUDE_DIRS=../date/include -DOptionParser_INCLUDE_DIRS=../OptionParser/include/ -DBoost_INCLUDE_DIRS=../boost_1_69_0 -DBoost_LIBRARY_DIRS=../boost_1_69_0 -DOpenssl_INCLUDE_DIRS=../openssl-1.1.1a/include/ -DOpenssl_LIBRARY_DIRS=../openssl-1.1.1a
+	
+	cmake ../SaivBot -DCMAKE_CXX_COMPILER=/usr/bin/g++-8 -DJson_INCLUDE_DIRS=../json/include -DDate_INCLUDE_DIRS=../date/include -DOptionParser_INCLUDE_DIRS=../OptionParser/include/ -DBoost_INCLUDE_DIRS=../boost_1_69_0 -DBoost_LIBRARY_DIRS=../boost_1_69_0 -DOpenssl_INCLUDE_DIRS=../openssl-1.1.1a/include/ -DOpenssl_LIBRARY_DIRS=../openssl-1.1.1a
 
 4. Build the project
 
 Linux: 
-    
-    make
-    
+	
+	make
+	
 Window: 
-    
-    cmake --build . --config Release
-    cmake --build . --config Debug 
+	
+	cmake --build . --config Release
+	cmake --build . --config Debug 
 
 ## Run
 Run SaivBot, the program should create a file "Confix.txt" in the same directory as the SaivBot binary then terminate.

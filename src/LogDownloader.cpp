@@ -250,7 +250,7 @@ void LogDownloader::errorHandler(boost::system::error_code ec)
 {
 	m_request.error_handler();
 	std::stringstream ss;
-	ss << "LogDownloader error: " << ec.message() << "\n";
+	ss << "LogDownloader error: " << ec.message();
 	throw std::runtime_error(ss.str());
 }
 
@@ -291,7 +291,7 @@ void LogDownloader::handshakeHandler(boost::system::error_code ec)
 	if (ec) {
 		errorHandler(ec);
 	}
-	auto it = m_request.targets.cbegin();
+	auto it = m_request.targets.begin();
 	fillHttpRequest(*it);
 	boost::beast::http::async_write(
 		*m_stream,
@@ -365,7 +365,7 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 		);
 	}
 	
-	Log log(it->first, std::move(temp_data), m_request.parser);
+	Log log(std::move(std::get<0>(*it)), std::move(std::get<1>(*it)), std::move(temp_data), m_request.parser);
 
 	m_request.callback(std::move(log));
 }
@@ -381,7 +381,7 @@ void LogDownloader::fillHttpRequest(const LogRequest::Target & target)
 	m_http_request = HttpRequestType();
 	m_http_request.version(m_request.version);
 	m_http_request.method(boost::beast::http::verb::get);
-	m_http_request.target(target.second);
+	m_http_request.target(std::get<2>(target));
 	m_http_request.set(boost::beast::http::field::host, m_request.host);
 	m_http_request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
 }

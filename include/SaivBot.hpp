@@ -24,7 +24,7 @@
 #include <unordered_map>
 #include <charconv>
 #include <regex>
-#include <atomic>
+#include <set>
 
 //Date
 #include <date/date.h>
@@ -237,9 +237,7 @@ private:
 		shutdown,
 		help_command,
 		count_command,
-		//search_command,
 		find_command,
-		//regexfind_command,
 		clip_command,
 		promote_command,
 		demote_command,
@@ -260,9 +258,7 @@ private:
 	void shutdownCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void helpCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void countCommandFunc(const IRCMessage & msg, std::string_view input_line);
-	//void searchCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void findCommandFunc(const IRCMessage & msg, std::string_view input_line);
-	//void regexfindCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void clipCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void promoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
 	void demoteCommandFunc(const IRCMessage & msg, std::string_view input_line);
@@ -311,7 +307,7 @@ private:
 			for (auto & channel : channels) {
 				for (auto & user : users) {
 					for (auto & ym : year_months) {
-						vec.emplace_back(TimeDetail::createYearMonthPeriod(ym), func(channel, user, ym));
+						vec.emplace_back(TimeDetail::createYearMonthPeriod(ym), channel, func(channel, user, ym));
 					}
 				}
 			}
@@ -322,7 +318,7 @@ private:
 			std::vector<LogRequest::Target> vec;
 			for (auto & channel : channels) {
 				for (auto & date : dates) {
-					vec.emplace_back(TimeDetail::createYearMonthDayPeriod(date), func(channel, date));
+					vec.emplace_back(TimeDetail::createYearMonthDayPeriod(date), channel, func(channel, date));
 				}
 			}
 			return vec;
@@ -408,15 +404,16 @@ private:
 
 	struct FindCallbackSharedData
 	{
+		using ChannelSet = std::set<Log::ChannelName>;
+		using SharedLinesFound = std::vector<std::tuple<ChannelSet::const_iterator, Log::Line>>;
 		std::mutex mutex;
 		std::size_t reference_count;
-		//bool find_func(data_view)
 		std::function<bool(std::string_view)> find_func;
-		//string dump_func(shared_lines_found);
-		std::function<std::string(std::vector<Log::Line>&)> dump_func;
+		std::function<std::string(SharedLinesFound&)> dump_func;
 		TimeDetail::TimePeriod period;
 		IRCMessage irc_msg;
-		std::vector<Log::Line> shared_lines_found;
+		SharedLinesFound shared_lines_found;
+		ChannelSet channels;
 	};
 
 	void findCommandCallback(
@@ -424,13 +421,16 @@ private:
 		std::shared_ptr<FindCallbackSharedData> shared_data_ptr
 	)
 	{
-		decltype(shared_data_ptr->shared_lines_found) lines_found;
+		FindCallbackSharedData::SharedLinesFound lines_found;
 		try {
 			if (log.isValid()) {
+				//find ChannelName ptr
+				auto it = shared_data_ptr->channels.find(log.getChannelName());
+				assert(it != shared_data_ptr->channels.end());
 				for (auto & line : log.getLines()) {
 					if (shared_data_ptr->period.isInside(line.getTime())) {
 						if (shared_data_ptr->find_func(line.getMessageView())) {
-							lines_found.emplace_back(line);
+							lines_found.emplace_back(it, line);
 						}
 					}
 				}

@@ -140,13 +140,16 @@ public:
 	};
 
 	using ParserFunc = std::function<bool(const std::string&, std::vector<LineView>&)>;
+	using ChannelName = std::string;
 
 	//Log() = default;
-	Log(const TimeDetail::TimePeriod & period, std::string && data, ParserFunc parser);
+	Log(TimeDetail::TimePeriod && period, ChannelName && channel_name, std::string && data, ParserFunc parser);
 
 	bool isValid() const;
 
 	TimeDetail::TimePeriod getPeriod() const;
+
+	const std::string & getChannelName() const;
 
 	const std::string & getData() const;
 
@@ -155,12 +158,10 @@ public:
 	std::size_t getNumberOfLines() const;
 
 private:
-
 	bool m_valid = false;
-	std::string m_data;
-
 	const TimeDetail::TimePeriod m_period;
-
+	ChannelName m_channel_name;
+	std::string m_data;
 	std::vector<LineView> m_lines;
 };
 

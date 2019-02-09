@@ -45,8 +45,9 @@ struct LogRequest
 {
 	using CallbackType = std::function<void(Log&&)>;
 	using ErrorHandlerType = std::function<void()>;
-	using Target = std::pair<TimeDetail::TimePeriod, std::string>;
-	using TargetIterator = std::vector<Target>::const_iterator;
+	//tuple<period, channel_name, log_target>
+	using Target = std::tuple<TimeDetail::TimePeriod, std::string, std::string>;
+	using TargetIterator = std::vector<Target>::iterator;
 	CallbackType callback;
 	ErrorHandlerType error_handler;
 	Log::ParserFunc parser;
