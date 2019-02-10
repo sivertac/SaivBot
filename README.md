@@ -63,7 +63,7 @@ You will need cmake 3.13.0 or later and a C++17 compatible compiler.
 
 cmake example
 	
-	cmake ../SaivBot -DCMAKE_CXX_COMPILER=/usr/bin/g++-8 -DJson_INCLUDE_DIRS=../json/include -DDate_INCLUDE_DIRS=../date/include -DOptionParser_INCLUDE_DIRS=../OptionParser/include/ -DBoost_INCLUDE_DIRS=../boost_1_69_0 -DBoost_LIBRARY_DIRS=../boost_1_69_0 -DOpenssl_INCLUDE_DIRS=../openssl-1.1.1a/include/ -DOpenssl_LIBRARY_DIRS=../openssl-1.1.1a
+	cmake ../SaivBot -DCMAKE_CXX_COMPILER=/usr/bin/g++-8 -DJson_INCLUDE_DIRS=../json/include -DDate_INCLUDE_DIRS=../date/include -DOptionParser_INCLUDE_DIRS=../OptionParser/include/ -DBoost_INCLUDE_DIRS=../boost_1_69_0 -DBoost_LIBRARY_DIRS=../boost_1_69_0 -DOpenssl_INCLUDE_DIRS=../openssl-1.1.1a/include/ -DOpenssl_LIBRARY_DIRS=../openssl-1.1.1a -DCMAKE_BUILD_TYPE=Release
 
 4. Build the project
 

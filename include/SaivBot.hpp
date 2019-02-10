@@ -42,7 +42,6 @@
 #include "IRCMessage.hpp"
 #include "LogDownloader.hpp"
 #include "DankHttp.hpp"
-//#include "IRCMessageTimedBuffer.hpp"
 #include "IRCMessageBuffer.hpp"
 
 /*

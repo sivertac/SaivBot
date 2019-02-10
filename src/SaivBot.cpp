@@ -834,9 +834,11 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 			};
 
 			shared_data_ptr->period = period;
-			shared_data_ptr->irc_msg = msg;
-			shared_data_ptr->channels = FindCallbackSharedData::ChannelSet(channels.begin(), channels.end());
-			
+			shared_data_ptr->irc_msg = msg;		
+			for (auto & channel : channels) {	
+				shared_data_ptr->channels.emplace(channel);
+			}
+
 			log_request.callback = std::bind(
 				&SaivBot::findCommandCallback,
 				this,

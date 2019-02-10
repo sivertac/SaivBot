@@ -3,10 +3,10 @@ project (SaivBot)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_EXTENSIONS ON)
 
 if (UNIX)
-	set(Openssl_LIBRARIES) 
+	set(Openssl_LIBRARIES 
 		ssl
 		crypto
 	)
@@ -16,7 +16,7 @@ if (MSVC)
 		libcrypto_static.lib 
 		libssl_static.lib
 	)
-endif
+endif (MSVC)
 
 add_executable(SaivBot
 	${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
@@ -33,8 +33,7 @@ if (CMAKE_BUILD_TYPE EQUAL "DEBUG")
 	message("Debug build")
 	target_compile_definitions(SaivBot PRIVATE SaivBot_TESTMODE)
 else (CMAKE_BUILD_TYPE EQUAL "DEBUG")
-	message("Release build")
-	#target_compile_options(SaivBot PRIVATE -std=c++17 -O3)
+	message("Release build")	
 endif (CMAKE_BUILD_TYPE EQUAL "DEBUG")
 
 target_include_directories(SaivBot PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -49,7 +48,7 @@ target_link_libraries(SaivBot PRIVATE ${Boost_LIBRARIES})
 target_link_libraries(SaivBot PRIVATE ${Openssl_LIBRARIES})
 
 if (UNIX)
-	target_link_libraries(SaivBot PRIVATE lstdc++fs pthread)
+	target_link_libraries(SaivBot PRIVATE stdc++fs pthread)
 endif (UNIX)
 
 if (NOT DEFINED Date_INCLUDE_DIRS)
