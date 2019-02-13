@@ -218,7 +218,7 @@ LogDownloader::LogDownloader(boost::asio::io_context & ioc) :
 	m_ctx{ boost::asio::ssl::context::sslv23_client },
 	m_resolver(ioc)
 {
-	load_root_certificates(m_ctx);
+	m_ctx.set_default_verify_paths();
 	m_stream.emplace(m_ioc, m_ctx);
 	m_http_response_parser.emplace();
 	m_http_response_parser->body_limit(std::numeric_limits<std::uint64_t>::max());
@@ -277,7 +277,7 @@ void LogDownloader::connectHandler(boost::system::error_code ec)
 		errorHandler(ec);
 	}
 	m_stream->async_handshake(
-		ssl::stream_base::client,
+		boost::asio::ssl::stream_base::client,
 		std::bind(
 			&LogDownloader::handshakeHandler,
 			shared_from_this(),

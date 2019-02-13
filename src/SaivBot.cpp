@@ -105,7 +105,7 @@ void SaivBot::onConnect(boost::system::error_code ec)
 {
 	if (ec) throw std::runtime_error(ec.message());
 	m_stream.async_handshake(
-		ssl::stream_base::client,
+		boost::asio::ssl::stream_base::client,
 		boost::asio::bind_executor(
 			m_read_strand,
 			std::bind(

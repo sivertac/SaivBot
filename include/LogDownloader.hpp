@@ -28,9 +28,6 @@
 #include <boost/asio/ssl/error.hpp>
 #include <boost/asio/ssl/stream.hpp>
 
-//TLS
-#include "root_certificates.hpp"
-
 //local
 #include "TimeDetail.hpp"
 #include "Log.hpp"

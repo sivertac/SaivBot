@@ -31,7 +31,7 @@ int main(int argc, char** argv)
 	boost::asio::io_context ioc;
 	std::filesystem::path config_path("Config.txt");
 	boost::asio::ssl::context ctx{ boost::asio::ssl::context::sslv23 };
-	load_root_certificates(ctx);
+	ctx.set_default_verify_paths();
 	SaivBot client(ioc, std::move(ctx), config_path);
 	client.run();
 

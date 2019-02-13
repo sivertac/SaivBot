@@ -9,7 +9,7 @@ namespace DankHttp
 		m_ctx{ boost::asio::ssl::context::sslv23_client },
 		m_resolver(ioc)
 	{
-		load_root_certificates(m_ctx);
+		m_ctx.set_default_verify_paths();
 		m_stream_ptr = std::make_unique<boost::asio::ssl::stream<boost::asio::ip::tcp::socket>>(m_ioc, m_ctx);
 	}
 
@@ -82,7 +82,7 @@ namespace DankHttp
 	{
 		if (ec) throw std::runtime_error(ec.message());
 		m_stream_ptr->async_handshake(
-			ssl::stream_base::client,
+			boost::asio::ssl::stream_base::client,
 			std::bind(
 				&NuulsUploader::handshakeHandler,
 				shared_from_this(),
