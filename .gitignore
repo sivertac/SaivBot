@@ -30,3 +30,7 @@
 *.exe
 *.out
 *.app
+
+#Visual Studio cmake meta-data
+CMakeSettings.json
+/.vs/

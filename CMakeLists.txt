@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 
 if (UNIX)
-	set(Openssl_LIBRARIES 
+	set(Openssl_LIBRARIES
 		ssl
 		crypto
 	)
@@ -79,10 +79,10 @@ if (NOT DEFINED Openssl_LIBRARY_DIRS)
     message("Openssl_LIBRARY_DIRS not defined")
 endif (NOT DEFINED Openssl_LIBRARY_DIRS)
 
-#target_link_libraries(SaivBot ${CMAKE_THREAD_LIBS_INIT})
-#target_link_libraries(SaivBot ${Boost_LIBRARIES})	
-#target_link_libraries(SaivBot -lstdc++fs)
-#target_link_libraries(SaivBot ssl crypto)
-
-
-
+#Date_INCLUDE_DIRS
+#Json_INCLUDE_DIRS
+#OptionParser_INCLUDE_DIRS
+#Boost_INCLUDE_DIRS
+#Boost_LIBRARY_DIRS
+#Openssl_INCLUDE_DIRS
+#Openssl_LIBRARY_DIRS
