@@ -40,7 +40,7 @@ enum class LogService
 
 struct LogRequest
 {
-	using CallbackType = std::function<void(Log&&)>;
+	using CallbackType = std::function<void(Log::Log&&)>;
 	using ErrorHandlerType = std::function<void()>;
 	//tuple<period, channel_name, log_target>
 	using Target = std::tuple<TimeDetail::TimePeriod, std::string, std::string>;

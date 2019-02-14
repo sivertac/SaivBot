@@ -365,7 +365,7 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 		);
 	}
 	
-	Log log(std::move(std::get<0>(*it)), std::move(std::get<1>(*it)), std::move(temp_data), m_request.parser);
+	Log::Log log(std::move(std::get<0>(*it)), std::move(std::get<1>(*it)), std::move(temp_data), m_request.parser);
 
 	m_request.callback(std::move(log));
 }

@@ -121,9 +121,6 @@ void SaivBot::onHandshake(boost::system::error_code ec)
 {
 	if (ec) throw std::runtime_error(ec.message());
 
-	//postSendIRC(std::move(std::string("PASS ").append(m_password)));
-	//postSendIRC(std::move(std::string("NICK ").append(m_nick)));
-
 	m_send_queue.emplace(std::move(std::string("PASS ").append(m_password)));
 	m_send_queue.emplace(std::move(std::string("NICK ").append(m_nick)));
 
@@ -397,9 +394,6 @@ void SaivBot::consumeMsgBuffer()
 
 void SaivBot::parseFreeMessage(const IRCMessage & msg)
 {
-	if (msg.getBody().find("A multi-raffle has begun") != msg.getBody().npos) {
-		sendPRIVMSG(msg.getParams()[0], "!join");
-	}	
 }
 
 void SaivBot::sendPRIVMSG(std::string_view channel, std::string_view msg)

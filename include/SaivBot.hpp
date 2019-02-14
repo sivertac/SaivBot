@@ -40,6 +40,7 @@
 
 //Local
 #include "IRCMessage.hpp"
+#include "Log.hpp"
 #include "LogDownloader.hpp"
 #include "DankHttp.hpp"
 #include "IRCMessageBuffer.hpp"
@@ -360,7 +361,7 @@ private:
 	};
 
 	void countCommandCallback(
-		Log && log,
+		Log::Log && log,
 		std::shared_ptr<CountCallbackSharedData> shared_data_ptr
 	)
 	{
@@ -416,7 +417,7 @@ private:
 	};
 
 	void findCommandCallback(
-		Log && log,
+		Log::Log && log,
 		std::shared_ptr<FindCallbackSharedData> shared_data_ptr
 	)
 	{
