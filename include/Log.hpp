@@ -11,6 +11,7 @@
 #include <chrono>
 #include <set>
 #include <unordered_map>
+#include <cstdint>
 
 //Boost
 #include <boost/archive/binary_oarchive.hpp>
@@ -176,100 +177,162 @@ namespace Log
 
 	namespace Impl
 	{
-		/*
-		Log file format (64 bit):
-		offset type size:		8 byte
-		size type size:			8 byte
-		timepoint element size: 16 byte
-		view element size:		16 byte
-		Header:
-			0x0		channel_name_offset
-			0x8		channel_name_size (in byte)
-			0x10	username_data_offset
-			0x18	username_data_size (in byte)
-			0x20	message_data_offset
-			0x28	message_data_size (in byte)
-			0x30	timepoint_data_offset
-			0x38	username_view_offset
-			0x40	message_view_offset
-			0x48	number_of_lines
-
-			0x50	channel_name
-
-					timepoint_data
-
-					username_data
-
-					message_data
-
-					username_view
-
-					message_view
-		*/
-
-		struct DataView
+		inline bool isBigEndian()
 		{
-			std::uint64_t ptr;
-			std::uint64_t size;
-		};
+			union {
+				std::uint32_t i;
+				char c[4];
+			} num = { 0x01020304 };
+			return num.c[0] == 1;
+		}
 
+		template <typename ByteFieldType, typename OffsetType, typename SizeType, typename TimePeriodType>
 		struct LogFileHeader
 		{
-			std::uint64_t channel_name_offset = 0x50;
-			std::uint64_t channel_name_size;
-			std::uint64_t username_data_offset;
-			std::uint64_t username_data_size;
-			std::uint64_t message_data_offset;
-			std::uint64_t message_data_size;
-			std::uint64_t timepoint_data_offset;
-			std::uint64_t username_view_offset;
-			std::uint64_t message_view_offset;
-			std::uint64_t number_of_lines;
+			ByteFieldType format_mode;
+			ByteFieldType endianness;
+			OffsetType channel_name_offset;
+			OffsetType username_data_offset;
+			OffsetType message_data_offset;
+			OffsetType timepoint_list_offset;
+			OffsetType username_list_offset;
+			OffsetType message_list_offset;
+			SizeType channel_name_size;
+			SizeType username_data_size;
+			SizeType message_data_size;
+			SizeType number_of_lines;
+			TimePeriodType time_period;
 		};
+
+		template <typename SizeType, typename StringType>
+		struct UsernameDataElement
+		{
+			SizeType size;
+			StringType str;
+		};
+
+		template <typename OffsetType, typename SizeType>
+		struct MessageListElement
+		{
+			OffsetType offset;
+			SizeType size;
+		};
+
+		template <class OutStream, typename ByteFieldType, typename DataOffsetType, typename SizeType, typename FileOffsetType = std::uint64_t, typename TimePointType = TimeDetail::TimePoint, typename TimePeriodType = TimeDetail::TimePeriod>
+		void serialize(OutStream & out_stream, const Log & log, ByteFieldType format_mode, ByteFieldType endianness)
+		{
+			using HeaderType = LogFileHeader<ByteFieldType, FileOffsetType, SizeType, TimePeriodType>;
+			using UsernameDataElementType = UsernameDataElement<SizeType, std::string_view>;
+			using MessageElementType = MessageListElement<DataOffsetType, SizeType>;
+
+			auto write_type_func = [&](auto type) { out_stream.write(reinterpret_cast<char*>(type), sizeof(type)); };
+			auto write_padding_func = [&](std::size_t amount) { for (std::size_t i = 0; i < amount; ++i) out_stream.put('\0'); };
+			auto write_view_func = [&](std::string_view view) {out_stream.write(view.data(), view.size()); };
+
+			HeaderType header;
+
+			header.format_mode = format_mode;
+			header.endianness = endianness;
+
+			if (format_mode == 1) { //16-bit
+				header.channel_name_offset = 0x58;
+			}
+			else if (format_mode == 2) { //32-bit
+				header.channel_name_offset = 0x60;
+			}
+			else if (format_mode == 3) { //64-bit
+				header.channel_name_offset = 0x70;
+			}
+
+			header.channel_name_size = static_cast<SizeType>(log.getChannelName().size());
+
+			std::vector<UsernameDataElementType> username_data;
+			std::vector<DataOffsetType> username_list(log.getLines().size());
+			header.username_data_offset = header.channel_name_offset + header.channel_name_size;
+			header.username_data_size = 0;
+			{
+				std::unordered_map<std::string_view, std::vector<SizeType>> name_map;
+				{
+					SizeType i = 0;
+					for (auto & name : log.getLines()) {
+						auto it = name_map.find(name);
+						if (it == name_map.end()) {
+							name_map.emplace(name, std::vector<SizeType>{ i });
+						}
+						else {
+							it->second.push_back(i);
+						}
+						++i;
+					}
+				}
+				for (auto & pair : name_map) {
+					username_data.push_back(UsernameDataElementType{ pair.first.size(), pair.first });
+					for (auto i : pair.second) {
+						username_list[i] = header.username_data_size;
+					}
+					header.username_data_size += (sizeof(SizeType) + pair.first.size());
+				}
+			}
+			
+			std::vector<MessageElementType> message_list;
+			header.message_data_offset = header.username_data_offset + header.username_data_size;
+			header.message_data_size = 0;
+			{
+				message_list.reserve(log.getLines().size());
+				for (auto & line : log.getLines()) {
+					message_list.push_back(MessageElementType{ header.message_data_size, line.getMessageView().size() });
+					header.message_data_size += line.getMessageView().size();
+				}
+			}
+			
+			header.number_of_lines = static_cast<SizeType>(log.getLines().size());
+			header.timepoint_list_offset = header.message_data_offset + header.message_data_size;
+			header.username_list_offset = header.timepoint_list_offset + sizeof(TimePointType) * header.number_of_lines;
+			header.message_list_offset = header.username_list_offset + sizeof(DataOffsetType) * header.number_of_lines;
+			header.time_period = log.getPeriod();
+
+			write_type_func(header.format_mode);
+			write_type_func(header.endianness);
+			write_padding_func(6);
+			write_type_func(header.channel_name_offset);
+			write_type_func(header.username_data_offset);
+			write_type_func(header.message_data_offset);
+			write_type_func(header.timepoint_list_offset);
+			write_type_func(header.username_list_offset);
+			write_type_func(header.message_list_offset);
+			write_type_func(header.channel_name_size);
+			write_type_func(header.username_data_size);
+			write_type_func(header.message_data_size);
+			write_type_func(header.number_of_lines);
+
+			write_view_func(log.getChannelName());
+			for (auto & e : username_data) {
+				write_type_func(e.size);
+				write_view_func(e.str);
+			}
+			for (auto & line : log.getLines()) {
+				write_view_func(line.getMessageView());
+			}
+
+			for (auto & e : log.getLines()) {
+				write_type_func(e.getTime());
+			}
+
+			for (DataOffsetType e : username_list) {
+				write_type_func(e);
+			}
+
+			for (auto & e : message_list) {
+				write_type_func(e.offset);
+				write_type_func(e.size);
+			}
+
+		}
 	}
 
 	template <class OutStream>
 	void serializeDefaultLogFormat(OutStream & out_stream, const Log & log)
 	{
-		using namespace Impl;
-
-		std::unordered_map<std::string_view, std::vector<std::uint64_t>> name_map;
-		std::vector<DataView> name_view(log.getLines().size());
-		{
-			{
-				std::uint64_t i = 0;
-				for (auto & name : log.getLines()) {
-					auto it = name_map.find(name);
-					if (it == name_map.end()) {
-						name_map.emplace(name, std::vector<std::uint64>{ i });
-					}
-					else {
-						it->second.push_back(i);
-					}
-					++i;
-				}
-			}
-			for (auto & pair : name_map) {
-				for (std::uint64_t i : pair.second) {
-					name_view[i] = DataView{ i, pair.first.size() };
-				}
-			}
-		}
-		
-		LogFileHeader header;
-		//header.channel_name_offset
-		header.channel_name_size = log.getChannelName().size();
-		header.username_data_offset = //??????
-		header.username_data_size = //??????
-
-
-		header.timepoint_data_offset = header.channel_name_offset + header.channel_name_size;
-		
-		
-		std::uintptr_t data_ptr = static_cast<std::uintptr_t>(log.getData().data());
-		
-		
-		
 
 	}
 
