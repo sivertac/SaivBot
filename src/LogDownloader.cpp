@@ -458,8 +458,6 @@ bool gempirLogParser(const std::string & data, std::vector<Log::LineView>& lines
 			continue;
 		}
 		lines.emplace_back(
-			line_view,
-			time_view,
 			time,
 			name_view,
 			message_view
@@ -539,8 +537,6 @@ bool overrustleLogParser(const std::string & data, std::vector<Log::LineView> & 
 			continue;
 		}
 		lines.emplace_back(
-			line_view,
-			time_view,
 			time,
 			name_view,
 			message_view

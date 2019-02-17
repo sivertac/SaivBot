@@ -800,14 +800,14 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 			auto shared_data_ptr = std::make_shared<FindCallbackSharedData>();
 			shared_data_ptr->reference_count = log_request.targets.size();
 			if (!regex) {
-				shared_data_ptr->find_func = [search_str = std::move(search_str), predicate](std::string_view str)->std::size_t {
+				shared_data_ptr->find_func = [search_str, predicate](std::string_view str)->bool {
 					auto searcher = std::default_searcher(search_str.begin(), search_str.end(), predicate);
 					return std::search(str.begin(), str.end(), searcher) != str.end();
 				};
 			}
 			else {
 				auto regex_searcher = std::regex(search_str);	
-				shared_data_ptr->find_func = [regex_searcher = std::move(regex_searcher)](std::string_view str)->std::size_t {
+				shared_data_ptr->find_func = [regex_searcher = std::move(regex_searcher)](std::string_view str)->bool {
 					return std::regex_match(str.begin(), str.end(), regex_searcher);
 				};
 			}

@@ -35,22 +35,15 @@
 |Offset field|16-bit element size|32-bit element size|64-bit element size|Description|
 |-|-|-|-|-|
 |channel_name_offset|1|1|1|Start of channel name string, size is given in channel_name_size.|
-|username_data_offset|1|1|1|Start of username data (See [Username data element](#username-data-element)), Size is given in username_data_size.|
-|message_data_offset|1|1|1|Start of message data.|
+|username_data_offset|1|1|1|Start of username data (See [Username data element](#username/message-data-element)), Size is given in username_data_size.|
+|message_data_offset|1|1|1|Start of message data (See [Message data element](#username/message-data-element)). Size is given in message_data_size.|
 |timepoint_list_offset|8|8|8|Element index corresponds to what message it belongs to. Element is a timepoint. Time points are always 64 bit posix time. size = element size * number_of_lines.|
 |username_list_offset|2|4|8|Element index corresponds to what message it belongs to. Element is a offset relative to username_data_offset. size = element size * number_of_lines.|
 |message_list_offset|4|8|16|Element index corresponds to what message it belongs to. (See [Message list element](#message-list-element)), size = element size * number_of_lines.|
 
-### Username data element
+### Username/Message data element
 
 |16-bit offset|32-bit offset|64-bit offset|16-bit size|32-bit size|64-bit size|Field|Description|
 |-|-|-|-|-|-|-|-|
 |0x0|0x0|0x0|2|4|8|size|Size of string.|
 |0x2|0x4|0x8|size|size|size|str|Start of string.|
-
-### Message list element
-
-|16-bit offset|32-bit offset|64-bit offset|16-bit size|32-bit size|64-bit size|Field|Description|
-|-|-|-|-|-|-|-|-|
-|0x0|0x0|0x0|2|4|8|offset|Offset relative to message_data_offset.|
-|0x2|0x4|0x8|2|4|8|size|Size of message|

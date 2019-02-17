@@ -422,6 +422,7 @@ private:
 	)
 	{
 		FindCallbackSharedData::SharedLinesFound lines_found;
+		
 		try {
 			if (log.isValid()) {
 				//find ChannelName ptr
@@ -436,7 +437,8 @@ private:
 				}
 			}
 		}
-		catch (std::exception) {
+		catch (std::exception & e) {
+			std::cout << "EXCEPTION: " << e.what() << "\n";
 		}
 
 		std::lock_guard<std::mutex> lock(shared_data_ptr->mutex);
