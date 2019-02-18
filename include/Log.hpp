@@ -30,40 +30,15 @@ namespace Log
 			TimeDetail::TimePoint time,
 			std::string_view name_view,
 			std::string_view message_view
-		) :
-			m_time(time),
-			m_name_view(name_view),
-			m_message_view(message_view)
-		{
-		}
+		);
 
-		TimeDetail::TimePoint getTime() const
-		{
-			return m_time;
-		}
-		std::string_view getNameView() const
-		{
-			return m_name_view;
-		}
-		std::string_view getMessageView() const
-		{
-			return m_message_view;
-		}
+		TimeDetail::TimePoint getTime() const;
 
-		static LineView copyView(const char* old_offset, const char* new_offset, LineView source)
-		{
-			auto copy_view = [&](std::string_view source_view) {
-				assert(source_view.data() >= old_offset);
-				std::ptrdiff_t distance = source_view.data() - old_offset;
-				return std::string_view(new_offset + distance, source_view.size());
-			};
-			LineView new_view(
-				source.m_time,
-				copy_view(source.m_name_view),
-				copy_view(source.m_message_view)
-			);
-			return new_view;
-		}
+		std::string_view getNameView() const;
+
+		std::string_view getMessageView() const;
+
+		static LineView copyView(const char* old_offset, const char* new_offset, LineView source);
 
 	private:
 		TimeDetail::TimePoint m_time;
@@ -74,25 +49,17 @@ namespace Log
 	class Line
 	{
 	public:
-		Line(const LineView & line_view)
-		{
-			copyLineViewImpl(line_view);
-		}
+		Line(const LineView & line_view);
 
-		Line(const Line & source)
-		{
-			copyLineImpl(source);
-		}
+		Line(const Line & source);
+		
 		Line & operator=(const Line & source)
 		{
 			copyLineImpl(source);
 			return *this;
 		}
 
-		Line(Line && source)
-		{
-			moveLineImpl(std::move(source));
-		}
+		Line(Line && source);
 
 		Line & operator=(Line && source)
 		{
@@ -100,70 +67,34 @@ namespace Log
 			return *this;
 		}
 
-		std::string getData() const
-		{
-			return m_data;
-		}
-		TimeDetail::TimePoint getTime() const
-		{
-			return m_time;
-		}
-		std::string_view getNameView() const
-		{
-			return m_name_view;
-		}
-		std::string_view getMessageView() const
-		{
-			return m_message_view;
-		}
+		std::string & getData();
+
+		TimeDetail::TimePoint getTime() const;
+		
+		std::string_view getNameView() const;
+		
+		std::string_view getMessageView() const;
 	private:
 		std::string m_data;
 		TimeDetail::TimePoint m_time;
 		std::string_view m_name_view;
 		std::string_view m_message_view;
 
-		void copyLineViewImpl(const LineView & line_view)
-		{
-			m_time = line_view.getTime();
-			m_data = line_view.getNameView();
-			m_data.append(line_view.getMessageView());
-			m_name_view = std::string_view(m_data.data(), line_view.getNameView().size());
-			m_message_view = std::string_view(m_data.data() + m_name_view.size(), line_view.getMessageView().size());
-		}
+		void copyLineViewImpl(const LineView & line_view);
 
-		void copyLineImpl(const Line & source)
-		{
-			m_time = source.m_time;
-			m_data = source.m_data;
-			auto copy_view = [&](std::string_view source_view) {
-				assert(source_view.data() >= source.m_data.data());
-				std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-				return std::string_view(m_data.data() + distance, source_view.size());
-			};
-			m_name_view = copy_view(source.m_name_view);
-			m_message_view = copy_view(source.m_message_view);
-		}
+		void copyLineImpl(const Line & source);
 
-		void moveLineImpl(Line && source)
-		{
-			m_time = std::move(source.m_time);
-			m_data = std::move(m_data);
-			auto copy_view = [&](std::string_view source_view) {
-				assert(source_view.data() >= source.m_data.data());
-				std::ptrdiff_t distance = source_view.data() - source.m_data.data();
-				return std::string_view(m_data.data() + distance, source_view.size());
-			};
-			m_name_view = copy_view(source.m_name_view);
-			m_message_view = copy_view(source.m_message_view);
-		}
+		void moveLineImpl(Line && source);
 	};
 
-	using ParserFunc = std::function<bool(const std::string&, std::vector<LineView>&)>;
+	using ParserFunc = std::function<bool(const std::string&, std::vector<std::string_view> & names, std::vector<LineView> & lines)>;
 	using ChannelName = std::string;
 
 	class Log
 	{
 	public:
+		Log(TimeDetail::TimePeriod && period, ChannelName && channel_name, std::string && data, std::vector<std::string_view> && names, std::vector<LineView> && lines);
+		
 		Log(TimeDetail::TimePeriod && period, ChannelName && channel_name, std::string && data, ParserFunc parser);
 
 		Log(const Log & source) = delete;
@@ -187,14 +118,16 @@ namespace Log
 
 		const std::string & getData() const;
 
+		const std::vector<std::string_view> & getNames() const;
+
 		const std::vector<LineView> & getLines() const;
 
-		std::size_t getNumberOfLines() const;
 	private:
 		bool m_valid = false;
 		TimeDetail::TimePeriod m_period;
 		ChannelName m_channel_name;
 		std::string m_data;
+		std::vector<std::string_view> m_names; //sorted set of names (no duplicates)
 		std::vector<LineView> m_lines;
 
 		void moveImpl(Log && source);
@@ -211,19 +144,21 @@ namespace Log
 			return num.c[0] == 1;
 		}
 
-		template <typename ByteFieldType, typename OffsetType, typename SizeType, typename TimePeriodType>
+		template <typename ByteFieldType, typename FileOffsetType, typename SizeType, typename TimePeriodType>
 		struct LogFileHeader
 		{
 			ByteFieldType format_mode;
 			ByteFieldType endianness;
-			OffsetType channel_name_offset;
-			OffsetType username_data_offset;
-			OffsetType message_data_offset;
-			OffsetType timepoint_list_offset;
-			OffsetType username_list_offset;
-			OffsetType message_list_offset;
+			FileOffsetType channel_name_offset;
+			FileOffsetType username_data_offset;
+			FileOffsetType username_set_offset;
+			FileOffsetType message_data_offset;
+			FileOffsetType timepoint_list_offset;
+			FileOffsetType username_list_offset;
+			FileOffsetType message_list_offset;
 			SizeType channel_name_size;
 			SizeType username_data_size;
+			SizeType username_set_size;
 			SizeType message_data_size;
 			SizeType number_of_lines;
 			TimePeriodType time_period;
@@ -267,35 +202,13 @@ namespace Log
 			header.username_data_offset = header.channel_name_offset + header.channel_name_size;
 			header.username_data_size = 0;
 			{
+				//THIS IS WRONG
+
 				username_list.reserve(log.getLines().size());
 				for (auto & line : log.getLines()) {
 					username_list.push_back(header.username_data_size);
 					header.username_data_size += sizeof(SizeType) + line.getNameView().size();
 				}
-				/*
-
-				std::unordered_map<std::string_view, std::vector<SizeType>> name_map;
-				{
-					SizeType i = 0;
-					for (auto & name : log.getLines()) {
-						auto it = name_map.find(name);
-						if (it == name_map.end()) {
-							name_map.emplace(name, std::vector<SizeType>{ i });
-						}
-						else {
-							it->second.push_back(i);
-						}
-						++i;
-					}
-				}
-				for (auto & pair : name_map) {
-					username_data.push_back(UsernameDataElementType{ pair.first.size(), pair.first });
-					for (auto i : pair.second) {
-						username_list[i] = header.username_data_size;
-					}
-					header.username_data_size += (sizeof(SizeType) + pair.first.size());
-				}
-				*/
 			}
 			
 			std::vector<DataOffsetType> message_list;

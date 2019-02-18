@@ -417,7 +417,7 @@ std::string createGempirChannelTarget(const std::string_view & channel, const da
 	return target.str();
 }
 
-bool gempirLogParser(const std::string & data, std::vector<Log::LineView>& lines)
+bool gempirLogParser(const std::string & data, std::vector<std::string_view> & names, std::vector<Log::LineView>& lines)
 {
 	if (data == "{\"message\":\"Failure reading log\"}") return false;
 	const std::string_view cr("\n");
@@ -466,6 +466,14 @@ bool gempirLogParser(const std::string & data, std::vector<Log::LineView>& lines
 		//advance
 		data_view.remove_prefix(cr_pos + cr.size());
 	}
+
+	//create name set
+	std::set<std::string_view> name_set;
+	for (auto & line : lines) {
+		name_set.emplace(line.getNameView());
+	}
+	names = std::vector<std::string_view>(name_set.begin(), name_set.end());
+
 	return true;
 }
 
@@ -501,7 +509,7 @@ std::string createOverrustleChannelTarget(const std::string_view & channel, cons
 	return target.str();
 }
 
-bool overrustleLogParser(const std::string & data, std::vector<Log::LineView> & lines)
+bool overrustleLogParser(const std::string & data, std::vector<std::string_view> & names, std::vector<Log::LineView> & lines)
 {
 	if (data == "didn't find any logs for this user") return false;
 	
@@ -544,6 +552,13 @@ bool overrustleLogParser(const std::string & data, std::vector<Log::LineView> & 
 		//advance
 		data_view.remove_prefix(cr_pos + cr.size());
 	}
+	//create name set
+	std::set<std::string_view> name_set;
+	for (auto & line : lines) {
+		name_set.emplace(line.getNameView());
+	}
+	names = std::vector<std::string_view>(name_set.begin(), name_set.end());
+
 	return true;	
 }
 

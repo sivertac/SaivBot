@@ -16,15 +16,17 @@
 |0x02|0x02|0x02|6|6|6|Unused|Unused|
 |0x08|0x08|0x08|8|8|8|channel_name_offset||
 |0x10|0x10|0x10|8|8|8|username_data_offset||
-|0x18|0x18|0x18|8|8|8|message_data_offset||
-|0x20|0x20|0x20|8|8|8|timepoint_list_offset||
-|0x28|0x28|0x28|8|8|8|username_list_offset||
-|0x30|0x30|0x30|8|8|8|message_list_offset||
-|0x32|0x34|0x38|2|4|8|channel_name_size||
-|0x34|0x38|0x40|2|4|8|username_data_size||
-|0x36|0x3C|0x48|2|4|8|message_data_size||
-|0x38|0x40|0x50|2|4|8|number_of_lines||
-|0x48|0x50|0x60|16|16|16|time_period|Time period of log. Two timepoints after eachother.|
+|0x18|0x18|0x18|8|8|8|username_set_offset||
+|0x20|0x20|0x20|8|8|8|message_data_offset||
+|0x28|0x28|0x28|8|8|8|timepoint_list_offset||
+|0x30|0x30|0x30|8|8|8|username_list_offset||
+|0x38|0x38|0x38|8|8|8|message_list_offset||
+|0x3A|0x3C|0x40|2|4|8|channel_name_size||
+|0x3C|0x40|0x48|2|4|8|username_data_size||
+|0x3E|0x44|0x50|2|4|8|username_set_size||
+|0x40|0x48|0x58|2|4|8|message_data_size||
+|0x42|0x4C|0x60|2|4|8|number_of_lines||
+|0x44|0x50|0x68|16|16|16|time_period|Time period of log. Two timepoints after eachother.|
 
 * All values are unsigned.
 * Offsets in the header are relative to the file start.
@@ -36,10 +38,11 @@
 |-|-|-|-|-|
 |channel_name_offset|1|1|1|Start of channel name string, size is given in channel_name_size.|
 |username_data_offset|1|1|1|Start of username data (See [Username data element](#username/message-data-element)), Size is given in username_data_size.|
+|username_set_offset|2|4|8|Start of username set. All elements are offsets to username_data_offset. The elements are sorted lexicographic according to the strings they are pointing to. size = element size * username_set_size.|
 |message_data_offset|1|1|1|Start of message data (See [Message data element](#username/message-data-element)). Size is given in message_data_size.|
 |timepoint_list_offset|8|8|8|Element index corresponds to what message it belongs to. Element is a timepoint. Time points are always 64 bit posix time. size = element size * number_of_lines.|
-|username_list_offset|2|4|8|Element index corresponds to what message it belongs to. Element is a offset relative to username_data_offset. size = element size * number_of_lines.|
-|message_list_offset|4|8|16|Element index corresponds to what message it belongs to. (See [Message list element](#message-list-element)), size = element size * number_of_lines.|
+|username_list_offset|2|4|8|Element index corresponds to what message it belongs to. Element is a index of username_set. size = element size * number_of_lines.|
+|message_list_offset|2|4|8|Element index corresponds to what message it belongs to. size = element size * number_of_lines.|
 
 ### Username/Message data element
 
