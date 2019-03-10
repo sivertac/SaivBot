@@ -58,8 +58,8 @@ class LogDownloader : public std::enable_shared_from_this<LogDownloader>
 {
 public:
 	using HttpRequestType = boost::beast::http::request<boost::beast::http::empty_body>;
-	using HttpResponseType = boost::beast::http::response<boost::beast::http::string_body>;
-	using HttpResponseParserType = boost::beast::http::response_parser<boost::beast::http::string_body>;
+	using HttpResponseType = boost::beast::http::response<boost::beast::http::vector_body<char>>;
+	using HttpResponseParserType = boost::beast::http::response_parser<boost::beast::http::vector_body<char>>;
 
 	LogDownloader(boost::asio::io_context & ioc);
 
@@ -112,7 +112,7 @@ std::string createGempirChannelTarget(
 /*
 */
 bool gempirLogParser(
-	const std::string & data,
+	const std::string_view data,
 	std::vector<std::string_view> & names,
 	std::vector<Log::LineView> & lines
 );
@@ -135,7 +135,7 @@ std::string createOverrustleChannelTarget(
 /*
 */
 bool overrustleLogParser(
-	const std::string & data,
+	const std::string_view data,
 	std::vector<std::string_view> & names,
 	std::vector<Log::LineView> & lines
 );

@@ -166,10 +166,25 @@ namespace TimeDetail
 		{
 			return m_end;
 		}
+
+		bool isEqual(const TimePeriod & other) const
+		{
+			return m_begin == other.m_begin && m_end == other.m_end;
+		}
 	private:
 		TimePoint m_begin;
 		TimePoint m_end;
 	};
+
+	inline bool operator==(const TimePeriod & lhs, const TimePeriod & rhs)
+	{
+		return lhs.isEqual(rhs);
+	}
+
+	inline bool operator!=(const TimePeriod & lhs, const TimePeriod & rhs)
+	{
+		return !(lhs == rhs);
+	}
 
 	inline std::optional<TimePeriod> parseTimePeriod(const std::string_view & begin, const std::string_view & end)
 	{

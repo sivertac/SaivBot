@@ -335,7 +335,7 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 
 	std::lock_guard<std::mutex> lock(m_read_handler_mutex);
 	
-	std::string temp_data = std::move(m_http_response_parser->get().body());
+	std::vector<char> temp_data = std::move(m_http_response_parser->get().body());
 	m_http_response_parser.emplace();
 	m_http_response_parser->body_limit(std::numeric_limits<std::uint64_t>::max());
 	
@@ -417,7 +417,7 @@ std::string createGempirChannelTarget(const std::string_view & channel, const da
 	return target.str();
 }
 
-bool gempirLogParser(const std::string & data, std::vector<std::string_view> & names, std::vector<Log::LineView>& lines)
+bool gempirLogParser(const std::string_view data, std::vector<std::string_view> & names, std::vector<Log::LineView>& lines)
 {
 	if (data == "{\"message\":\"Failure reading log\"}") return false;
 	const std::string_view cr("\n");
@@ -509,7 +509,7 @@ std::string createOverrustleChannelTarget(const std::string_view & channel, cons
 	return target.str();
 }
 
-bool overrustleLogParser(const std::string & data, std::vector<std::string_view> & names, std::vector<Log::LineView> & lines)
+bool overrustleLogParser(const std::string_view data, std::vector<std::string_view> & names, std::vector<Log::LineView> & lines)
 {
 	if (data == "didn't find any logs for this user") return false;
 	
