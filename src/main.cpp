@@ -1,7 +1,7 @@
 //main.cpp
 //Author: Sivert Andresen Cubedo
 
-#if 1
+#if 0
 //C++
 #include <iostream>
 #include <string>
@@ -107,6 +107,74 @@ int main(int argc, char** argv)
 		}
 	}
 	
+
+	return 0;
+}
+
+#endif
+
+#if 1
+//C++
+#include <iostream>
+#include <string>
+#include <thread>
+
+//Local
+#include "../include/LRUCache.hpp"
+#include "../include/LogCache.hpp"
+
+int main(int argc, char** argv)
+{
+
+	LRUCache<int, int> cache(1);
+
+	cache.put(1, 10);
+	cache.put(2, 20);
+	cache.put(3, 30);
+	cache.put(4, 40);
+	cache.put(1, 11);
+	cache.put(5, 111);
+	cache.put(6, 1111);
+	cache.put(7, 11111);
+
+	cache.get(1);
+
+	cache.resize(5);
+
+	cache.put(10, 123);
+	cache.put(11, 321);
+
+	cache.remove_size_limit();
+
+	cache.put(1, 10);
+	cache.put(2, 20);
+	cache.put(3, 30);
+	cache.put(4, 40);
+	cache.put(1, 11);
+	cache.put(5, 111);
+	cache.put(6, 1111);
+	cache.put(7, 11111);
+
+	cache.resize(100);
+
+	cache.put(111, 10);
+	cache.put(112, 20);
+	cache.put(113, 30);
+	cache.put(114, 40);
+	cache.put(111, 11);
+	cache.put(115, 111);
+	cache.put(116, 1111);
+	cache.put(117, 11111);
+
+	cache.resize(2);
+
+	for (auto & pair : cache.get_queue()) {
+		std::cout << pair.second << ", ";
+	}
+	std::cout << "\n";
+	std::cout << "map size: " << cache.get_map().size() << "\n";
+
+
 
 	return 0;
 }
