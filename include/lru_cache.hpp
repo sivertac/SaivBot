@@ -1,7 +1,7 @@
-//LRUCache.hpp
+//lru_cache.hpp
 #pragma once
-#ifndef LRUCache_HEADER
-#define LRUCache_HEADER
+#ifndef lru_cache_HEADER
+#define lru_cache_HEADER
 
 //C++
 #include <list>
@@ -12,40 +12,40 @@
 #include <functional>
 #include <cassert>
 
-template <typename KeyType, typename ValueType, typename SizeType = std::size_t>
-class LRUCache
+template <typename key_type, typename value_type, class hash = std::hash<key_type>, typename size_type = std::size_t>
+class lru_cache
 {
 public:
-	static_assert(std::is_integral<SizeType>::value, "Invalid SizeType");
+	static_assert(std::is_integral<size_type>::value, "Invalid size_type");
 
-	using QueuePair = std::pair<KeyType, ValueType>;
+	using queue_pair = std::pair<key_type, value_type>;
 
-	LRUCache() :
+	lru_cache() :
 		m_size(0)
 	{
 	}
 
-	LRUCache(SizeType size) :
+	lru_cache(size_type size) :
 		m_size(size)
 	{
 	}
 
-	void put(KeyType && key, ValueType && value)
+	void put(key_type && key, value_type && value)
 	{
 		if (m_size != 0 && m_queue.size() == m_size) {
 			assert(m_queue.size() <= m_size);
-			popBack();
+			pop_back();
 		}
 		//if key exist, override data
 		auto it = m_map.find(key);
 		if (it == m_map.end()) {
-			m_queue.emplace_front(key, std::forward<ValueType>(value));
-			m_map.emplace(std::forward<KeyType>(key), m_queue.begin());
+			m_queue.emplace_front(key, std::forward<value_type>(value));
+			m_map.emplace(std::forward<key_type>(key), m_queue.begin());
 		}
 		else {
-			it->second->second = std::forward<ValueType>(value);
+			it->second->second = std::forward<value_type>(value);
 			if (it->second != m_queue.begin()) {
-				moveFront(it);
+				move_front(it);
 			}
 		}
 	}
@@ -53,12 +53,12 @@ public:
 	//Returns iterator from m_queue.
 	//If the iterator is not equal to m_queue.end() then the element is present.
 	//The iterator can be invalidated if it is erased from a put.
-	auto get(const KeyType & key)
+	auto get(const key_type & key)
 	{
 		auto it = m_map.find(key);
 		if (it != m_map.end()) {
 			if (it->second != m_queue.begin()) {
-				moveFront(it);
+				move_front(it);
 			}
 			return (it->second);
 		}
@@ -87,12 +87,12 @@ public:
 		return m_map;
 	}
 
-	SizeType size() const
+	size_type size() const
 	{
 		return size;
 	}
 
-	void resize(const SizeType size)
+	void resize(const size_type size)
 	{
 		if (size != 0 && m_queue.size() > size) {
 			for (auto queue_it = std::next(m_queue.begin(), size); queue_it != m_queue.end();) {
@@ -111,18 +111,18 @@ public:
 	}
 
 private:
-	std::list<QueuePair> m_queue;
-	std::unordered_map<KeyType, typename std::list<QueuePair>::iterator> m_map;
-	SizeType m_size; // m_size == 0 : no size limit, m_size > 0 : limited to size
+	std::list<queue_pair> m_queue;
+	std::unordered_map<key_type, typename std::list<queue_pair>::iterator, hash> m_map;
+	size_type m_size; // m_size == 0 : no size limit, m_size > 0 : limited to size
 
-	void moveFront(typename decltype(m_map)::iterator & it)
+	void move_front(typename decltype(m_map)::iterator & it)
 	{
 		m_queue.push_front(std::move(*(it->second)));
 		m_queue.erase(it->second);
 		it->second = m_queue.begin();
 	}
 
-	void popBack()
+	void pop_back()
 	{
 		auto map_it = m_map.find(m_queue.back().first);
 		assert(map_it != m_map.end());
@@ -133,4 +133,4 @@ private:
 
 
 
-#endif // !LRUCache_HEADER
+#endif // !lru_cache_HEADER

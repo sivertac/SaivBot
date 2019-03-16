@@ -113,20 +113,20 @@ int main(int argc, char** argv)
 
 #endif
 
-#if 1
+#if 0
 //C++
 #include <iostream>
 #include <string>
 #include <thread>
 
 //Local
-#include "../include/LRUCache.hpp"
+#include "../include/lru_cache.hpp"
 #include "../include/LogCache.hpp"
 
 int main(int argc, char** argv)
 {
 
-	LRUCache<int, int> cache(1);
+	lru_cache<int, int> cache(1);
 
 	cache.put(1, 10);
 	cache.put(2, 20);
@@ -175,6 +175,27 @@ int main(int argc, char** argv)
 	std::cout << "map size: " << cache.get_map().size() << "\n";
 
 
+
+	return 0;
+}
+
+#endif
+
+#if 1
+//C++
+#include <iostream>
+#include <string>
+#include <thread>
+#include <filesystem>
+
+//Local
+#include "../include/LogCache.hpp"
+
+int main(int argc, char** argv)
+{
+	std::filesystem::path cache_dir(".");
+
+	LogCache log_cache(std::move(cache_dir));
 
 	return 0;
 }

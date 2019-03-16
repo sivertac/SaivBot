@@ -17,6 +17,9 @@
 //Date
 #include <date/date.h>
 
+//Boost
+#include <boost/functional/hash.hpp>
+
 namespace TimeDetail
 {
 	using TimePoint = std::chrono::time_point<std::chrono::system_clock>;
@@ -171,6 +174,18 @@ namespace TimeDetail
 		{
 			return m_begin == other.m_begin && m_end == other.m_end;
 		}
+
+		struct hash
+		{
+			std::size_t operator()(const TimePeriod & p) const noexcept
+			{
+				std::size_t seed;
+				boost::hash_combine(seed, p.m_begin.time_since_epoch().count());
+				boost::hash_combine(seed, p.m_end.time_since_epoch().count());
+				return seed;
+			}
+		};
+		
 	private:
 		TimePoint m_begin;
 		TimePoint m_end;

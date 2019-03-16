@@ -15,6 +15,7 @@
 //Local
 #include "TimeDetail.hpp"
 #include "Log.hpp"
+#include "lru_cache.hpp"
 
 class LogTracker
 {
@@ -37,23 +38,31 @@ private:
 	std::string m_channel_name;
 	TimeDetail::TimePeriod m_period;
 	std::filesystem::path m_path;
+	bool m_in_storage = false;
 	std::optional<Log::Log> m_log;
 };
 
 class LogCache
 {
 public:
-	LogCache(std::filesystem::path && cache_dir);
+	LogCache(std::filesystem::path && cache_dir) :
+		m_cache_dir(std::move(cache_dir))
+	{
+	}
 
 
 
 private:
 	std::filesystem::path m_cache_dir;
 
+	std::size_t m_memory_capacity;	//how much we're alloved to use in byte
+	std::size_t m_memory_size;		//how much we are using in byte
+	lru_cache<TimeDetail::TimePeriod, std::reference_wrapper<LogTracker>, TimeDetail::TimePeriod::hash> m_memory_cache;
 
+	std::size_t m_storage_capacity;	//how much we're alloved to use in byte
+	std::size_t m_storage_size;		//how much we are using in byte
+	lru_cache<TimeDetail::TimePeriod, std::reference_wrapper<LogTracker>, TimeDetail::TimePeriod::hash> m_storage_cache;
 
-	std::vector<LogTracker> m_in_memory_logs;
-	std::vector<LogTracker> m_in_storage_logs;
 };
 
 #endif // !LogCache_HEADER
