@@ -143,14 +143,14 @@ namespace TimeDetail
 	{
 	public:
 		TimePeriod() = default;
-		TimePeriod(TimePoint begin, TimePoint end) :
+		TimePeriod(TimePoint begin, TimePoint end) noexcept :
 			m_begin(begin),
 			m_end(end)
 		{
 			assert(begin <= end);
 		}
 
-		bool isInside(TimePoint point) const
+		bool isInside(TimePoint point) const noexcept
 		{
 			if (point >= m_begin && point < m_end) {
 				return true;
@@ -160,46 +160,46 @@ namespace TimeDetail
 			}
 		}
 
-		TimePoint begin() const
+		TimePoint begin() const noexcept
 		{
 			return m_begin;
 		}
 
-		TimePoint end() const
+		TimePoint end() const noexcept
 		{
 			return m_end;
 		}
 
-		bool isEqual(const TimePeriod & other) const
+		bool isEqual(const TimePeriod & other) const noexcept
 		{
-			return m_begin == other.m_begin && m_end == other.m_end;
+			return (m_begin == other.m_begin && m_end == other.m_end);
+		}
+
+		friend bool operator==(const TimePeriod & lhs, const TimePeriod & rhs) noexcept
+		{
+			return lhs.isEqual(rhs);
+		}
+
+		friend bool operator!=(const TimePeriod & lhs, const TimePeriod & rhs) noexcept
+		{
+			return !(lhs == rhs);
 		}
 
 		struct hash
 		{
 			std::size_t operator()(const TimePeriod & p) const noexcept
 			{
-				std::size_t seed;
+				std::size_t seed = 0;
 				boost::hash_combine(seed, p.m_begin.time_since_epoch().count());
 				boost::hash_combine(seed, p.m_end.time_since_epoch().count());
 				return seed;
 			}
 		};
-		
+
 	private:
 		TimePoint m_begin;
 		TimePoint m_end;
 	};
-
-	inline bool operator==(const TimePeriod & lhs, const TimePeriod & rhs)
-	{
-		return lhs.isEqual(rhs);
-	}
-
-	inline bool operator!=(const TimePeriod & lhs, const TimePeriod & rhs)
-	{
-		return !(lhs == rhs);
-	}
 
 	inline std::optional<TimePeriod> parseTimePeriod(const std::string_view & begin, const std::string_view & end)
 	{

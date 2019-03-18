@@ -12,12 +12,16 @@
 #include <functional>
 #include <cassert>
 
-template <typename key_type, typename value_type, class hash = std::hash<key_type>, typename size_type = std::size_t>
+template <class Key, class T, class Hash = std::hash<Key>, class SizeType = std::size_t>
 class lru_cache
 {
 public:
-	static_assert(std::is_integral<size_type>::value, "Invalid size_type");
+	static_assert(std::is_integral<SizeType>::value, "Invalid size_type");
 
+	using key_type = Key;
+	using value_type = T;
+	using hasher = Hash;
+	using size_type = SizeType;
 	using queue_pair = std::pair<key_type, value_type>;
 
 	lru_cache() :
@@ -112,7 +116,7 @@ public:
 
 private:
 	std::list<queue_pair> m_queue;
-	std::unordered_map<key_type, typename std::list<queue_pair>::iterator, hash> m_map;
+	std::unordered_map<key_type, typename std::list<queue_pair>::iterator, hasher> m_map;
 	size_type m_size; // m_size == 0 : no size limit, m_size > 0 : limited to size
 
 	void move_front(typename decltype(m_map)::iterator & it)

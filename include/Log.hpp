@@ -17,6 +17,7 @@
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/serialization/binary_object.hpp>
+#include <boost/functional/hash.hpp>
 
 //local
 #include "TimeDetail.hpp"
@@ -40,12 +41,19 @@ namespace Log
 
 		static LineView copyView(const char* old_offset, const char* new_offset, LineView source);
 
-		bool isEqual(const LineView & other) const
+		bool isEqual(const LineView & other) const noexcept
 		{
-			if (m_time != other.m_time) return false;
-			if (m_name_view != other.m_name_view) return false;
-			if (m_message_view != other.m_message_view) return false;
-			return true;
+			return (m_time == other.m_time && m_name_view == other.m_name_view && m_message_view == other.m_message_view);
+		}
+
+		friend bool operator==(const LineView & lhs, const LineView & rhs) noexcept
+		{
+			return lhs.isEqual(rhs);
+		}
+
+		friend bool operator!=(const LineView & lhs, const LineView & rhs) noexcept
+		{
+			return !(lhs == rhs);
 		}
 
 	private:
@@ -53,16 +61,6 @@ namespace Log
 		std::string_view m_name_view;
 		std::string_view m_message_view;
 	};
-
-	inline bool operator==(const LineView & lhs, const LineView & rhs)
-	{
-		return lhs.isEqual(rhs);
-	}
-
-	inline bool operator!=(const LineView & lhs, const LineView & rhs)
-	{
-		return !(lhs == rhs);
-	}
 
 	class Line
 	{
@@ -108,6 +106,47 @@ namespace Log
 	using ParserFunc = std::function<bool(const std::string_view, std::vector<std::string_view> & names, std::vector<LineView> & lines)>;
 	using ChannelName = std::string;
 
+	class log_identifier
+	{
+	public:
+		log_identifier(ChannelName && channel_name, TimeDetail::TimePeriod && period) noexcept :
+			m_channel_name(std::forward<ChannelName>(channel_name)),
+			m_period(std::forward<TimeDetail::TimePeriod>(period))
+		{
+		}
+
+		bool is_channel_log() const noexcept
+		{
+			return m_user_log.empty();
+		}
+
+		bool is_user_log() const noexcept
+		{
+			return !m_user_log.empty();
+		}
+
+		friend bool operator==(const log_identifier & rhs, const log_identifier & lhs) noexcept
+		{
+			return (rhs.m_channel_name == lhs.m_channel_name && rhs.m_period == lhs.m_period && rhs.m_user_log == lhs.m_user_log);
+		}
+
+		struct hash
+		{
+			std::size_t operator()(const log_identifier & id) noexcept
+			{
+				std::size_t seed = 0;
+				boost::hash_combine(seed, id.m_channel_name);
+				boost::hash_combine(seed, TimeDetail::TimePeriod::hash()(id.m_period));
+				boost::hash_combine(seed, id.m_user_log);
+				return seed;
+			}
+		};
+	private:
+		ChannelName m_channel_name;
+		TimeDetail::TimePeriod m_period;
+		std::string m_user_log;	//if not empty, then it is a userlog
+	};
+
 	class Log
 	{
 	public:
@@ -140,7 +179,7 @@ namespace Log
 
 		const std::vector<LineView> & getLines() const;
 		
-		bool isEqual(const Log & other) const
+		bool isEqual(const Log & other) const noexcept
 		{
 			if (m_lines.size() != other.m_lines.size()) return false;
 			if (m_valid != other.m_valid) return false;
@@ -148,13 +187,20 @@ namespace Log
 			if (m_channel_name != other.m_channel_name) return false;
 			for (std::size_t i = 0; i < m_lines.size(); ++i) {
 				if (m_lines[i] != other.m_lines[i]) {
-					std::cout << i << "\n";
-					std::cout << m_lines[i].getMessageView() << "\n";
-					std::cout << other.m_lines[i].getMessageView() << "\n";
 					return false;
 				}
 			}
 			return true;
+		}
+
+		friend bool operator==(const Log & lhs, const Log & rhs) noexcept
+		{
+			return lhs.isEqual(rhs);
+		}
+
+		friend bool operator!=(const Log & lhs, const Log & rhs) noexcept
+		{
+			return !(lhs == rhs);
 		}
 
 	private:
@@ -167,16 +213,6 @@ namespace Log
 
 		void moveImpl(Log && source);
 	};
-
-	inline bool operator==(const Log & lhs, const Log & rhs)
-	{
-		return lhs.isEqual(rhs);
-	}
-
-	inline bool operator!=(const Log & lhs, const Log & rhs)
-	{
-		return !(lhs == rhs);
-	}
 
 	namespace Impl
 	{

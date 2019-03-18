@@ -64,7 +64,6 @@ int main(int argc, char** argv)
 #endif
 
 #if 0
-
 //C++
 #include <iostream>
 #include <string>
@@ -189,13 +188,15 @@ int main(int argc, char** argv)
 #include <filesystem>
 
 //Local
-#include "../include/LogCache.hpp"
+#include "../include/log_cache.hpp"
 
 int main(int argc, char** argv)
 {
 	std::filesystem::path cache_dir(".");
 
-	LogCache log_cache(std::move(cache_dir));
+	log_cache cache(std::move(cache_dir));
+
+	std::cout << sizeof(std::filesystem::path) << "\n";
 
 	return 0;
 }
