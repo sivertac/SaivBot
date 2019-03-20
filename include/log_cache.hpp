@@ -34,7 +34,6 @@ public:
 		m_path(std::move(path)),
 		m_log(std::move(log))
 	{
-		if (!m_log->isValid()) throw std::runtime_error("invalid log");
 		save_in_storage();
 	}
 

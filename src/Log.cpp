@@ -2,39 +2,6 @@
 
 #include "../include/Log.hpp"
 
-Log::Log::Log(TimeDetail::TimePeriod && period, ChannelName && channel_name, std::vector<char> && data, std::vector<std::string_view>&& names, std::vector<LineView>&& lines) :
-	m_valid(true),
-	m_period(std::move(period)),
-	m_channel_name(std::move(channel_name)),
-	m_data(std::move(data)),
-	m_names(std::move(names)),
-	m_lines(std::move(lines))
-{
-}
-
-Log::Log::Log(TimeDetail::TimePeriod && period, ChannelName && channel_name, std::vector<char> && data, ParserFunc parser) :
-	m_period(std::move(period)),
-	m_channel_name(std::move(channel_name)),
-	m_data(std::move(data))
-{
-	m_valid = parser(std::string_view(m_data.data(), m_data.size()), m_names, m_lines);
-}
-
-bool Log::Log::isValid() const
-{
-	return m_valid;
-}
-
-TimeDetail::TimePeriod Log::Log::getPeriod() const
-{
-	return m_period;
-}
-
-const std::string & Log::Log::getChannelName() const
-{
-	return m_channel_name;
-}
-
 const std::vector<char> & Log::Log::getData() const
 {
 	return m_data;
@@ -52,9 +19,7 @@ const std::vector<Log::LineView> & Log::Log::getLines() const
 
 void Log::Log::moveImpl(Log && source)
 {
-	m_valid = std::move(source.m_valid);
-	m_channel_name = std::move(source.m_channel_name);
-	m_period = std::move(source.m_period);
+	m_id = std::move(source.m_id);
 	m_data = std::move(source.m_data);
 	m_names = std::move(source.m_names);
 	m_lines = std::move(source.m_lines);

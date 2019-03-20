@@ -43,11 +43,14 @@ struct LogRequest
 	using CallbackType = std::function<void(Log::Log&&)>;
 	using ErrorHandlerType = std::function<void()>;
 	//tuple<period, channel_name, log_target>
-	using Target = std::tuple<TimeDetail::TimePeriod, std::string, std::string>;
+	//using Target = std::tuple<TimeDetail::TimePeriod, std::string, std::string>;
+	//tuple<id, http target>
+	using Target = std::tuple<Log::log_identifier, std::string>;
 	using TargetIterator = std::vector<Target>::iterator;
 	CallbackType callback;
 	ErrorHandlerType error_handler;
-	Log::ParserFunc parser;
+	//Log::ParserFunc parser;
+	Log::log_parser_func parser;
 	std::string host;
 	std::string port;
 	std::vector<Target> targets;
@@ -79,7 +82,7 @@ private:
 	void readHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it);
 
 	void shutdownHandler(boost::system::error_code ec);
-
+	
 	void fillHttpRequest(const LogRequest::Target & target);
 
 	boost::asio::io_context & m_ioc;
@@ -109,13 +112,13 @@ std::string createGempirChannelTarget(
 	const date::year_month_day & date
 );
 
-/*
-*/
-bool gempirLogParser(
-	const std::string_view data,
-	std::vector<std::string_view> & names,
-	std::vector<Log::LineView> & lines
-);
+//bool gempirLogParser(
+//	const std::string_view data,
+//	std::vector<std::string_view> & names,
+//	std::vector<Log::LineView> & lines
+//);
+std::optional<Log::Log> gempir_log_parser(Log::log_identifier && id, std::vector<char> && data_vec);
+
 
 /*
 */
@@ -134,10 +137,11 @@ std::string createOverrustleChannelTarget(
 
 /*
 */
-bool overrustleLogParser(
-	const std::string_view data,
-	std::vector<std::string_view> & names,
-	std::vector<Log::LineView> & lines
-);
+//bool overrustleLogParser(
+//	const std::string_view data,
+//	std::vector<std::string_view> & names,
+//	std::vector<Log::LineView> & lines
+//);
+std::optional<Log::Log> overrustle_log_parser(Log::log_identifier && id, std::vector<char> && data_vec);
 
 #endif // !LogDownloader_HEADER

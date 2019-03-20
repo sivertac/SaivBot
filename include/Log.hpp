@@ -103,16 +103,40 @@ namespace Log
 		void moveLineImpl(Line && source);
 	};
 
-	using ParserFunc = std::function<bool(const std::string_view, std::vector<std::string_view> & names, std::vector<LineView> & lines)>;
+	//using ParserFunc = std::function<bool(const std::string_view, std::vector<std::string_view> & names, std::vector<LineView> & lines)>;
 	using ChannelName = std::string;
 
 	class log_identifier
 	{
 	public:
+		log_identifier() = default;
+
 		log_identifier(ChannelName && channel_name, TimeDetail::TimePeriod && period) noexcept :
 			m_channel_name(std::forward<ChannelName>(channel_name)),
 			m_period(std::forward<TimeDetail::TimePeriod>(period))
 		{
+		}
+
+		log_identifier(ChannelName && channel_name, TimeDetail::TimePeriod && period, std::string && user_log) noexcept :
+			m_channel_name(std::forward<ChannelName>(channel_name)),
+			m_period(std::forward<TimeDetail::TimePeriod>(period)),
+			m_user_log(std::forward<std::string>(user_log))
+		{
+		}
+
+		const ChannelName & get_channel_name() const noexcept
+		{
+			return m_channel_name;
+		}
+
+		const TimeDetail::TimePeriod & get_period() const noexcept
+		{
+			return m_period;
+		}
+
+		const std::string & get_userlog_name() const noexcept
+		{
+			return m_user_log;
 		}
 
 		bool is_channel_log() const noexcept
@@ -128,6 +152,11 @@ namespace Log
 		friend bool operator==(const log_identifier & rhs, const log_identifier & lhs) noexcept
 		{
 			return (rhs.m_channel_name == lhs.m_channel_name && rhs.m_period == lhs.m_period && rhs.m_user_log == lhs.m_user_log);
+		}
+
+		friend bool operator!=(const log_identifier & rhs, const log_identifier & lhs) noexcept
+		{
+			return !(rhs == lhs);
 		}
 
 		struct hash
@@ -147,12 +176,19 @@ namespace Log
 		std::string m_user_log;	//if not empty, then it is a userlog
 	};
 
+	class Log;
+	using log_parser_func = std::function<std::optional<typename Log>(log_identifier&&, std::vector<char>&&)>;
+
 	class Log
 	{
 	public:
-		Log(TimeDetail::TimePeriod && period, ChannelName && channel_name, std::vector<char> && data, std::vector<std::string_view> && names, std::vector<LineView> && lines);
-		
-		Log(TimeDetail::TimePeriod && period, ChannelName && channel_name, std::vector<char> && data, ParserFunc parser);
+		Log(log_identifier && id, std::vector<char> && data, std::vector<std::string_view> && names, std::vector<LineView> && lines) :
+			m_id(std::move(id)),
+			m_data(std::move(data)),
+			m_names(std::move(names)),
+			m_lines(std::move(lines))
+		{
+		}
 
 		Log(const Log & source) = delete;
 		Log & operator=(const Log & source) = delete;
@@ -167,11 +203,10 @@ namespace Log
 			return *this;
 		}
 
-		bool isValid() const;
-
-		TimeDetail::TimePeriod getPeriod() const;
-
-		const std::string & getChannelName() const;
+		const log_identifier & get_id() const noexcept
+		{
+			return m_id;
+		}
 
 		const std::vector<char> & getData() const;
 
@@ -182,9 +217,7 @@ namespace Log
 		bool isEqual(const Log & other) const noexcept
 		{
 			if (m_lines.size() != other.m_lines.size()) return false;
-			if (m_valid != other.m_valid) return false;
-			if (m_period != other.m_period) return false;
-			if (m_channel_name != other.m_channel_name) return false;
+			if (m_id != other.m_id) return false;
 			for (std::size_t i = 0; i < m_lines.size(); ++i) {
 				if (m_lines[i] != other.m_lines[i]) {
 					return false;
@@ -204,9 +237,7 @@ namespace Log
 		}
 
 	private:
-		bool m_valid = false;
-		TimeDetail::TimePeriod m_period;
-		ChannelName m_channel_name;
+		log_identifier m_id;
 		std::vector<char> m_data;
 		std::vector<std::string_view> m_names; //sorted set of names (no duplicates)
 		std::vector<LineView> m_lines;
@@ -238,16 +269,13 @@ namespace Log
 			ByteFieldType format_mode;
 			ByteFieldType endianness;
 			FileOffsetType channel_name_offset;
+			FileOffsetType userlog_name_offset;
 			FileOffsetType username_data_offset;
 			FileOffsetType message_data_offset;
 			FileOffsetType username_set_offset;
 			FileOffsetType timepoint_list_offset;
 			FileOffsetType username_list_offset;
 			FileOffsetType message_list_offset;
-			SizeType channel_name_size;
-			SizeType username_data_size;
-			SizeType username_set_size;
-			SizeType message_data_size;
 			SizeType number_of_lines;
 			TimePeriodType time_period;
 		};
@@ -260,7 +288,10 @@ namespace Log
 			auto write_type_func = [&](auto type) { out_stream.write(reinterpret_cast<char*>(&type), sizeof(type)); };
 			auto write_padding_func = [&](std::size_t amount) { for (std::size_t i = 0; i < amount; ++i) out_stream.put('\0'); };
 			auto write_view_func = [&](std::string_view view) {out_stream.write(view.data(), view.size()); };
-			
+
+			FileOffsetType current_write_offset = 0;
+			auto assign_offset_func = [&](SizeType size) -> FileOffsetType {if (size == 0) return 0; FileOffsetType old = current_write_offset; current_write_offset += size; return old; };
+
 			const SizeType username_set_element_size = sizeof(DataOffsetType) + sizeof(SizeType);
 			const SizeType timepoint_list_element_size = sizeof(TimePointType);
 			const SizeType username_list_element_size = sizeof(DataOffsetType);
@@ -275,25 +306,29 @@ namespace Log
 				header.channel_name_offset = 0x5A;
 			}
 			else if (format_mode == 2) { //32-bit
-				header.channel_name_offset = 0x64;
+				header.channel_name_offset = 0x5C;
 			}
 			else if (format_mode == 3) { //64-bit
-				header.channel_name_offset = 0x78;
+				header.channel_name_offset = 0x60;
 			}
 
-			header.channel_name_size = static_cast<SizeType>(log.getChannelName().size());
+			SizeType channel_name_size = static_cast<SizeType>(log.get_id().get_channel_name().size());
+			SizeType userlog_name_size = static_cast<SizeType>(log.get_id().get_userlog_name().size());
+			SizeType username_data_size = 0;
+			SizeType message_data_size = 0;
+			SizeType username_set_size = 0;
+			SizeType number_of_lines = 0;
 
 			std::vector<std::pair<DataOffsetType, SizeType>> username_set;
 			std::vector<DataOffsetType> username_list;
-			header.username_data_size = 0;
 			{
 				//calculate offsets
 				username_set.reserve(log.getNames().size());
 				for (auto & name : log.getNames()) {
-					username_set.emplace_back(header.username_data_size, static_cast<SizeType>(name.size()));
-					header.username_data_size += static_cast<SizeType>(name.size());
+					username_set.emplace_back(username_data_size, static_cast<SizeType>(name.size()));
+					username_data_size += static_cast<SizeType>(name.size());
 				}
-				header.username_set_size = static_cast<SizeType>(username_set.size());
+				username_set_size = static_cast<SizeType>(username_set.size());
 
 				username_list.reserve(log.getLines().size());
 				//assign indexes
@@ -311,20 +346,30 @@ namespace Log
 			}
 			
 			std::vector<std::pair<DataOffsetType, SizeType>> message_list;
-			header.message_data_size = 0;
 			{
 				message_list.reserve(log.getLines().size());
 				for (auto & line : log.getLines()) {
-					message_list.emplace_back(header.message_data_size, static_cast<SizeType>(line.getMessageView().size()));
-					header.message_data_size += static_cast<SizeType>(line.getMessageView().size());
+					message_list.emplace_back(message_data_size, static_cast<SizeType>(line.getMessageView().size()));
+					message_data_size += static_cast<SizeType>(line.getMessageView().size());
 				}
 			}
-			
-			header.number_of_lines = static_cast<SizeType>(log.getLines().size());
-			
+
 			//Arrange offsets
-			header.username_data_offset = header.channel_name_offset + header.channel_name_size;
-			header.message_data_offset = header.username_data_offset + header.username_data_size;
+			header.username_data_offset = assign_offset_func(username_data_size);
+
+			if (userlog_name_size > 0) {
+				header.userlog_name_offset = header.channel_name_offset + sizeof(SizeType) + channel_name_size;
+			}
+			else {
+				header.userlog_name_offset = 0;
+			}
+			if (channel_name_size > 0) {
+				header.username_data_offset = header.channel_name_offset + sizeof(SizeType) + channel_name_size;
+			}
+			else {
+				header.userlog_name_offset = 0;
+			}
+			header.message_data_offset = header.username_data_offset + sizeof(SizeType) + username_data_size;
 			header.username_set_offset = header.message_data_offset + header.message_data_size;
 			header.timepoint_list_offset = header.username_set_offset + (header.username_set_size * username_set_element_size);
 			header.username_list_offset = header.timepoint_list_offset + (header.number_of_lines * timepoint_list_element_size);
@@ -337,16 +382,13 @@ namespace Log
 			write_type_func(header.endianness);
 			write_padding_func(6);
 			write_type_func(header.channel_name_offset);
+			write_type_func(header.userlog_name_offset);
 			write_type_func(header.username_data_offset);
 			write_type_func(header.message_data_offset);
 			write_type_func(header.username_set_offset);
 			write_type_func(header.timepoint_list_offset);
 			write_type_func(header.username_list_offset);
 			write_type_func(header.message_list_offset);
-			write_type_func(header.channel_name_size);
-			write_type_func(header.username_data_size);
-			write_type_func(header.message_data_size);
-			write_type_func(header.username_set_size);
 			write_type_func(header.number_of_lines);
 			write_type_func(header.time_period);
 

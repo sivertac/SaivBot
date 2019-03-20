@@ -365,9 +365,15 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 		);
 	}
 	
-	Log::Log log(std::move(std::get<0>(*it)), std::move(std::get<1>(*it)), std::move(temp_data), m_request.parser);
-
-	m_request.callback(std::move(log));
+	//Log::Log log(std::move(std::get<0>(*it)), std::move(std::get<1>(*it)), std::move(temp_data), m_request.parser);
+	
+	auto log = m_request.parser(std::move(std::get<0>(*it)), std::move(temp_data));
+	if (log) {
+		m_request.callback(std::move(*log));
+	}
+	else {
+		m_request.error_handler();
+	}
 }
 
 void LogDownloader::shutdownHandler(boost::system::error_code ec)
@@ -381,7 +387,7 @@ void LogDownloader::fillHttpRequest(const LogRequest::Target & target)
 	m_http_request = HttpRequestType();
 	m_http_request.version(m_request.version);
 	m_http_request.method(boost::beast::http::verb::get);
-	m_http_request.target(std::get<2>(target));
+	m_http_request.target(std::get<1>(target));
 	m_http_request.set(boost::beast::http::field::host, m_request.host);
 	m_http_request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
 }
@@ -417,6 +423,7 @@ std::string createGempirChannelTarget(const std::string_view & channel, const da
 	return target.str();
 }
 
+/*
 bool gempirLogParser(const std::string_view data, std::vector<std::string_view> & names, std::vector<Log::LineView>& lines)
 {
 	if (data == "{\"message\":\"Failure reading log\"}") return false;
@@ -476,6 +483,67 @@ bool gempirLogParser(const std::string_view data, std::vector<std::string_view> 
 
 	return true;
 }
+*/
+
+std::optional<Log::Log> gempir_log_parser(Log::log_identifier && id, std::vector<char>&& data_vec)
+{
+	std::string_view data_view(data_vec.data(), data_vec.size());
+	std::vector<Log::LineView> lines;
+	if (data_view == "{\"message\":\"Failure reading log\"}") return std::nullopt;
+	const std::string_view cr("\n");
+	while (!data_view.empty()) {
+		auto cr_pos = data_view.find(cr);
+		if (cr_pos == data_view.npos) break;
+		std::string_view line_view = data_view.substr(0, cr_pos + cr.size());
+		std::string_view all_view = data_view.substr(0, cr_pos);
+		auto space = all_view.find("] ");
+		if (space == all_view.npos) {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		std::string_view time_view = all_view.substr(1, space - 1);
+		all_view.remove_prefix(space + 2);
+		space = all_view.find(' ');
+		if (space == all_view.npos) {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		std::string_view channel_view = all_view.substr(0, space);
+		all_view.remove_prefix(space + 1);
+		space = all_view.find(':');
+		if (space == all_view.npos) {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		std::string_view name_view = all_view.substr(0, space);
+		all_view.remove_prefix(space + 2);
+		std::string_view message_view = all_view;
+		TimeDetail::TimePoint time;
+		if (auto r = TimeDetail::parseGempirTimeString(time_view)) {
+			time = *r;
+		}
+		else {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		lines.emplace_back(
+			time,
+			name_view,
+			message_view
+		);
+
+		//advance
+		data_view.remove_prefix(cr_pos + cr.size());
+	}
+
+	//create name set
+	std::set<std::string_view> name_set;
+	for (auto & line : lines) {
+		name_set.emplace(line.getNameView());
+	}
+	auto names = std::vector<std::string_view>(name_set.begin(), name_set.end());
+	return Log::Log(std::move(id), std::move(data_vec), std::move(names), std::move(lines));
+}
 
 std::string createOverrustleUserTarget(const std::string_view & channel, const std::string_view & user, const date::year_month & ym)
 {
@@ -509,6 +577,7 @@ std::string createOverrustleChannelTarget(const std::string_view & channel, cons
 	return target.str();
 }
 
+/*
 bool overrustleLogParser(const std::string_view data, std::vector<std::string_view> & names, std::vector<Log::LineView> & lines)
 {
 	if (data == "didn't find any logs for this user") return false;
@@ -560,5 +629,58 @@ bool overrustleLogParser(const std::string_view data, std::vector<std::string_vi
 	names = std::vector<std::string_view>(name_set.begin(), name_set.end());
 
 	return true;	
+}
+*/
+
+std::optional<Log::Log> overrustle_log_parser(Log::log_identifier && id, std::vector<char>&& data_vec)
+{
+	std::string_view data_view(data_vec.data(), data_vec.size());
+	std::vector<Log::LineView> lines;
+	if (data_view == "didn't find any logs for this user") return std::nullopt;
+	const std::string_view cr("\n");
+
+	while (!data_view.empty()) {
+		auto cr_pos = data_view.find(cr);
+		if (cr_pos == data_view.npos) break;
+		std::string_view line_view = data_view.substr(0, cr_pos + cr.size());
+		std::string_view all_view = data_view.substr(0, cr_pos);
+		auto space = all_view.find("] ");
+		if (space == all_view.npos) {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		std::string_view time_view = all_view.substr(1, space - 1);
+		all_view.remove_prefix(space + 2);
+		space = all_view.find(' ');
+		if (space == all_view.npos) {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		std::string_view name_view = all_view.substr(0, space - 1);
+		all_view.remove_prefix(space + 1);
+		std::string_view message_view = all_view;
+		TimeDetail::TimePoint time;
+		if (auto r = TimeDetail::parseOverrustleTimeString(time_view)) {
+			time = *r;
+		}
+		else {
+			data_view.remove_prefix(cr_pos + cr.size());
+			continue;
+		}
+		lines.emplace_back(
+			time,
+			name_view,
+			message_view
+		);
+		//advance
+		data_view.remove_prefix(cr_pos + cr.size());
+	}
+	//create name set
+	std::set<std::string_view> name_set;
+	for (auto & line : lines) {
+		name_set.emplace(line.getNameView());
+	}
+	auto names = std::vector<std::string_view>(name_set.begin(), name_set.end());
+	return Log::Log(std::move(id), std::move(data_vec), std::move(names), std::move(lines));
 }
 

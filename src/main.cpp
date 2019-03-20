@@ -63,7 +63,7 @@ int main(int argc, char** argv)
 
 #endif
 
-#if 0
+#if 1
 //C++
 #include <iostream>
 #include <string>
@@ -80,6 +80,7 @@ int main(int argc, char** argv)
 	std::optional<Log::Log> log1;
 	
 	{
+		Log::log_identifier id("pajlada", TimeDetail::TimePeriod(std::chrono::system_clock::now(), std::chrono::system_clock::now() + std::chrono::seconds(10)), "saivnator");
 		std::ifstream ifs("test_log.txt", std::ios::binary);
 		std::vector<char> data;
 		ifs.seekg(0, std::ios::end);
@@ -88,7 +89,8 @@ int main(int argc, char** argv)
 		data.assign((std::istreambuf_iterator<char>(ifs)),
 			std::istreambuf_iterator<char>());
 
-		log1.emplace(TimeDetail::TimePeriod(std::chrono::system_clock::now(), std::chrono::system_clock::now() + std::chrono::seconds(10)), "name", std::move(data), gempirLogParser);
+		//log1.emplace(TimeDetail::TimePeriod(std::chrono::system_clock::now(), std::chrono::system_clock::now() + std::chrono::seconds(10)), "name", std::move(data), gempirLogParser);
+		log1.emplace(std::move())
 	}
 
 	{
@@ -120,7 +122,7 @@ int main(int argc, char** argv)
 
 //Local
 #include "../include/lru_cache.hpp"
-#include "../include/LogCache.hpp"
+#include "../include/log_cache.hpp"
 
 int main(int argc, char** argv)
 {
@@ -180,7 +182,7 @@ int main(int argc, char** argv)
 
 #endif
 
-#if 1
+#if 0
 //C++
 #include <iostream>
 #include <string>
