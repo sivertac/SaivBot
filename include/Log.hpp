@@ -291,11 +291,7 @@ namespace Log
 
 			FileOffsetType current_write_offset = 0;
 			auto assign_offset_func = [&](SizeType size) -> FileOffsetType {if (size == 0) return 0; FileOffsetType old = current_write_offset; current_write_offset += size; return old; };
-
-			const SizeType username_set_element_size = sizeof(DataOffsetType) + sizeof(SizeType);
-			const SizeType timepoint_list_element_size = sizeof(TimePointType);
-			const SizeType username_list_element_size = sizeof(DataOffsetType);
-			const SizeType message_list_element_size = sizeof(DataOffsetType) + sizeof(SizeType);
+			auto assign_offset_sizeprefix_func = [&](SizeType size) -> FileOffsetType {if (size == 0) return 0; FileOffsetType old = current_write_offset; current_write_offset += sizeof(SizeType) + size; return old; };
 
 			HeaderType header;
 
@@ -303,21 +299,24 @@ namespace Log
 			header.endianness = endianness;
 
 			if (format_mode == 1) { //16-bit
-				header.channel_name_offset = 0x5A;
+				current_write_offset = 0x5A;
 			}
 			else if (format_mode == 2) { //32-bit
-				header.channel_name_offset = 0x5C;
+				current_write_offset = 0x5C;
 			}
 			else if (format_mode == 3) { //64-bit
-				header.channel_name_offset = 0x60;
+				current_write_offset = 0x60;
 			}
 
+			SizeType number_of_lines = static_cast<SizeType>(log.getLines().size());
 			SizeType channel_name_size = static_cast<SizeType>(log.get_id().get_channel_name().size());
 			SizeType userlog_name_size = static_cast<SizeType>(log.get_id().get_userlog_name().size());
 			SizeType username_data_size = 0;
 			SizeType message_data_size = 0;
 			SizeType username_set_size = 0;
-			SizeType number_of_lines = 0;
+			SizeType timepoint_list_size = sizeof(TimePointType) * number_of_lines;
+			SizeType username_list_size = sizeof(DataOffsetType) * number_of_lines;
+			SizeType message_list_size = (sizeof(DataOffsetType) + sizeof(SizeType)) * number_of_lines;
 
 			std::vector<std::pair<DataOffsetType, SizeType>> username_set;
 			std::vector<DataOffsetType> username_list;
@@ -354,28 +353,19 @@ namespace Log
 				}
 			}
 
-			//Arrange offsets
-			header.username_data_offset = assign_offset_func(username_data_size);
+			header.number_of_lines = number_of_lines;
 
-			if (userlog_name_size > 0) {
-				header.userlog_name_offset = header.channel_name_offset + sizeof(SizeType) + channel_name_size;
-			}
-			else {
-				header.userlog_name_offset = 0;
-			}
-			if (channel_name_size > 0) {
-				header.username_data_offset = header.channel_name_offset + sizeof(SizeType) + channel_name_size;
-			}
-			else {
-				header.userlog_name_offset = 0;
-			}
-			header.message_data_offset = header.username_data_offset + sizeof(SizeType) + username_data_size;
-			header.username_set_offset = header.message_data_offset + header.message_data_size;
-			header.timepoint_list_offset = header.username_set_offset + (header.username_set_size * username_set_element_size);
-			header.username_list_offset = header.timepoint_list_offset + (header.number_of_lines * timepoint_list_element_size);
-			header.message_list_offset = header.username_list_offset + (header.number_of_lines * username_list_element_size);
-			
-			header.time_period = log.getPeriod();
+			//Arrange offsets
+			header.channel_name_offset = assign_offset_sizeprefix_func(channel_name_size);
+			header.userlog_name_offset = assign_offset_sizeprefix_func(userlog_name_size);
+			header.username_data_offset = assign_offset_sizeprefix_func(username_data_size);
+			header.message_data_offset = assign_offset_sizeprefix_func(message_data_size);
+			header.username_set_offset = assign_offset_sizeprefix_func(username_set_size * (sizeof(DataOffsetType) + sizeof(SizeType)));
+			header.timepoint_list_offset = assign_offset_func(timepoint_list_size);
+			header.username_list_offset = assign_offset_func(username_list_size);
+			header.message_list_offset = assign_offset_func(message_list_size);
+
+			header.time_period = log.get_id().get_period();
 
 			//insert header
 			write_type_func(header.format_mode);
@@ -392,19 +382,36 @@ namespace Log
 			write_type_func(header.number_of_lines);
 			write_type_func(header.time_period);
 
-			write_view_func(log.getChannelName());
-
-			for (auto & name : log.getNames()) {
-				write_view_func(name);
+			if (channel_name_size > 0) {
+				write_type_func(channel_name_size);
+				write_view_func(log.get_id().get_channel_name());
 			}
 
-			for (auto & line : log.getLines()) {
-				write_view_func(line.getMessageView());
+			if (userlog_name_size > 0) {
+				write_type_func(userlog_name_size);
+				write_view_func(log.get_id().get_userlog_name());
 			}
 
-			for (auto & pair : username_set) {
-				write_type_func(pair.first);
-				write_type_func(pair.second);
+			if (username_data_size > 0) {
+				write_type_func(username_data_size);
+				for (auto & name : log.getNames()) {
+					write_view_func(name);
+				}
+			}
+
+			if (message_data_size > 0) {
+				write_type_func(message_data_size);
+				for (auto & line : log.getLines()) {
+					write_view_func(line.getMessageView());
+				}
+			}
+
+			if (username_set_size > 0) {
+				write_type_func(username_set_size);
+				for (auto & pair : username_set) {
+					write_type_func(pair.first);
+					write_type_func(pair.second);
+				}
 			}
 
 			for (auto & line : log.getLines()) {
@@ -426,11 +433,6 @@ namespace Log
 		{
 			using HeaderType = LogFileHeader<ByteFieldType, FileOffsetType, SizeType, TimePeriodType>;
 			
-			//read whole file
-			//std::size_t in_data_position = 0;
-			//bool in_data_eof = false;
-			//std::vector<char> in_data((std::istreambuf_iterator<char>(in_stream)), std::istreambuf_iterator<char>());
-
 			auto read_type_func = [&](auto & target) { in_stream.read(reinterpret_cast<char*>(&target), sizeof(target)); };
 			//auto read_type_func = [&](auto & target) { if (in_data_position + sizeof(target)) >= in_data.size()) in_data_eof = true;   }
 			//auto read_type_func = [&](auto & target) { std::memcpy(&target, in_data.data() + in_data_position, sizeof(target)); in_data_position += sizeof(target); };
@@ -447,75 +449,112 @@ namespace Log
 			read_type_func(header.endianness);
 			move_position_relative_func(6);
 			read_type_func(header.channel_name_offset);
+			read_type_func(header.userlog_name_offset);
 			read_type_func(header.username_data_offset);
 			read_type_func(header.message_data_offset);
 			read_type_func(header.username_set_offset);
 			read_type_func(header.timepoint_list_offset);
 			read_type_func(header.username_list_offset);
 			read_type_func(header.message_list_offset);
-			read_type_func(header.channel_name_size);
-			read_type_func(header.username_data_size);
-			read_type_func(header.message_data_size);
-			read_type_func(header.username_set_size);
 			read_type_func(header.number_of_lines);
 			read_type_func(header.time_period);
 
 			if (in_stream.fail()) return std::nullopt;
 
 			ChannelName channel_name;
-			channel_name.resize(header.channel_name_size);
-			set_position_global_func(header.channel_name_offset);
-			if (in_stream.fail()) return std::nullopt;
-			read_func(channel_name.data(), header.channel_name_size);
+
+			if (header.channel_name_offset > 0) {
+				set_position_global_func(header.channel_name_offset);
+				SizeType size;
+				read_type_func(size);
+				channel_name.resize(size);
+				read_func(channel_name.data(), size);
+				if (in_stream.fail()) return std::nullopt;
+			}
+
+			std::string userlog_name;
+			if (header.userlog_name_offset > 0) {
+				set_position_global_func(header.userlog_name_offset);
+				SizeType size;
+				read_type_func(size);
+				userlog_name.resize(size);
+				read_func(userlog_name.data(), size);
+				if (in_stream.fail()) return std::nullopt;
+			}
 
 			std::vector<char> data;
-			data.resize(header.username_data_size + header.message_data_size); //must not be resized after this
-			char* username_data_ptr = data.data();
-			char* message_data_ptr = data.data() + header.username_data_size;
-			set_position_global_func(header.username_data_offset);
-			if (in_stream.fail()) return std::nullopt;
-			read_func(username_data_ptr, header.username_data_size);
-			set_position_global_func(header.message_data_offset);
-			if (in_stream.fail()) return std::nullopt;
-			read_func(message_data_ptr, header.message_data_size);
+			char* username_data_ptr;
+			char* message_data_ptr;
+			{
+				SizeType username_data_size = 0;
+				SizeType message_data_size = 0;
+				if (header.username_data_offset > 0) {
+					set_position_global_func(header.username_data_offset);
+					read_type_func(username_data_size);
+					if (in_stream.fail()) return std::nullopt;
+				}
+				if (header.message_data_offset > 0) {
+					set_position_global_func(header.message_data_offset);
+					read_type_func(message_data_size);
+					if (in_stream.fail()) return std::nullopt;
+				}
+				data.resize(username_data_size + message_data_size); //must not be resized after this
+				username_data_ptr = data.data();
+				message_data_ptr = data.data() + username_data_size;
+				if (header.username_data_offset > 0) {
+					set_position_global_func(header.username_data_offset + sizeof(SizeType));
+					read_func(username_data_ptr, username_data_size);
+					if (in_stream.fail()) return std::nullopt;
+				}
+				if (header.message_data_offset > 0) {
+					set_position_global_func(header.message_data_offset + sizeof(SizeType));
+					read_func(message_data_ptr, message_data_size);
+					if (in_stream.fail()) return std::nullopt;
+				}
+			}
 
 			std::vector<std::string_view> username_set;
-			username_set.reserve(header.username_set_size);
-			set_position_global_func(header.username_set_offset);
-			if (in_stream.fail()) return std::nullopt;
-			for (std::size_t i = 0; i < header.username_set_size; ++i) {
-				DataOffsetType offset;
-				SizeType size;
-				read_type_func(offset);
-				read_type_func(size);
-				username_set.emplace_back(username_data_ptr + offset, size);
+			if (header.username_set_offset > 0) {
+				set_position_global_func(header.username_set_offset);
+				SizeType set_size = 0;
+				read_type_func(set_size);
+				username_set.reserve(set_size);
+				for (std::size_t i = 0; i < set_size; ++i) {
+					DataOffsetType offset;
+					SizeType size;
+					read_type_func(offset);
+					read_type_func(size);
+					username_set.emplace_back(username_data_ptr + offset, size);
+				}
+				if (in_stream.fail()) return std::nullopt;
 			}
 
 			std::vector<TimePointType> timepoint_list;
 			timepoint_list.reserve(header.number_of_lines);
 			set_position_global_func(header.timepoint_list_offset);
-			if (in_stream.fail()) return std::nullopt;
 			for (std::size_t i = 0; i < header.number_of_lines; ++i) {
 				TimePointType t;
 				read_type_func(t);
 				timepoint_list.push_back(t);
 			}
+			if (in_stream.fail()) return std::nullopt;
+			
 
 			std::vector<std::string_view> username_list;
 			username_list.reserve(header.number_of_lines);
 			set_position_global_func(header.username_list_offset);
-			if (in_stream.fail()) return std::nullopt;
 			for (std::size_t i = 0; i < header.number_of_lines; ++i) {
 				DataOffsetType offset = 0;
 				read_type_func(offset);
 				if (offset >= username_set.size()) return std::nullopt;
 				username_list.emplace_back(username_set[offset]);
 			}
+			if (in_stream.fail()) return std::nullopt;
+
 
 			std::vector<std::string_view> message_list;
 			message_list.reserve(header.number_of_lines);
 			set_position_global_func(header.message_list_offset);
-			if (in_stream.fail()) return std::nullopt;
 			for (std::size_t i = 0; i < header.number_of_lines; ++i) {
 				DataOffsetType offset = 0;
 				SizeType size = 0;
@@ -523,6 +562,7 @@ namespace Log
 				read_type_func(size);
 				message_list.emplace_back(message_data_ptr + offset, size);
 			}
+			if (in_stream.fail()) return std::nullopt;
 
 			std::vector<LineView> lines;
 			lines.reserve(header.number_of_lines);
@@ -530,7 +570,12 @@ namespace Log
 				lines.emplace_back(timepoint_list[i], username_list[i], message_list[i]);
 			}
 
-			Log log(std::move(header.time_period), std::move(channel_name), std::move(data), std::move(username_set), std::move(lines));
+			Log log(
+				log_identifier(std::move(channel_name), std::move(header.time_period), std::move(userlog_name)), 
+				std::move(data), 
+				std::move(username_set), 
+				std::move(lines)
+			);
 			
 			return std::move(log);
 		}

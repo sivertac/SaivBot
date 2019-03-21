@@ -307,7 +307,7 @@ private:
 			for (auto & channel : channels) {
 				for (auto & user : users) {
 					for (auto & ym : year_months) {
-						vec.emplace_back(TimeDetail::createYearMonthPeriod(ym), channel, func(channel, user, ym));
+						vec.emplace_back(Log::log_identifier(std::string(channel), TimeDetail::createYearMonthPeriod(ym)), func(channel, user, ym));
 					}
 				}
 			}
@@ -318,13 +318,13 @@ private:
 			std::vector<LogRequest::Target> vec;
 			for (auto & channel : channels) {
 				for (auto & date : dates) {
-					vec.emplace_back(TimeDetail::createYearMonthDayPeriod(date), channel, func(channel, date));
+					vec.emplace_back(Log::log_identifier(std::string(channel), TimeDetail::createYearMonthDayPeriod(date)), func(channel, date));
 				}
 			}
 			return vec;
 		};
 		if (service == LogService::gempir_log) {
-			log_request.parser = gempirLogParser;
+			log_request.parser = gempir_log_parser;
 			log_request.host = "api.gempir.com";
 			log_request.port = "443";
 			if (!all_users) {
@@ -335,7 +335,7 @@ private:
 			}
 		}
 		else if (service == LogService::overrustle_log) {
-			log_request.parser = overrustleLogParser;
+			log_request.parser = overrustle_log_parser;
 			log_request.host = "overrustlelogs.net";
 			log_request.port = "443";
 			if (!all_users) {
@@ -367,11 +367,9 @@ private:
 	{
 		std::size_t count = 0;
 		try {
-			if (log.isValid()) {
-				for (auto & line : log.getLines()) {
-					if (shared_data_ptr->period.isInside(line.getTime())) {
-						count += shared_data_ptr->count_func(line.getMessageView());
-					}
+			for (auto & line : log.getLines()) {
+				if (shared_data_ptr->period.isInside(line.getTime())) {
+					count += shared_data_ptr->count_func(line.getMessageView());
 				}
 			}
 		}
@@ -424,15 +422,13 @@ private:
 		FindCallbackSharedData::SharedLinesFound lines_found;
 		
 		try {
-			if (log.isValid()) {
-				//find ChannelName ptr
-				auto it = shared_data_ptr->channels.find(log.getChannelName());
-				assert(it != shared_data_ptr->channels.end());
-				for (auto & line : log.getLines()) {
-					if (shared_data_ptr->period.isInside(line.getTime())) {
-						if (shared_data_ptr->find_func(line.getMessageView())) {
-							lines_found.emplace_back(it, line);
-						}
+			//find ChannelName ptr
+			auto it = shared_data_ptr->channels.find(log.get_id().get_channel_name());
+			assert(it != shared_data_ptr->channels.end());
+			for (auto & line : log.getLines()) {
+				if (shared_data_ptr->period.isInside(line.getTime())) {
+					if (shared_data_ptr->find_func(line.getMessageView())) {
+						lines_found.emplace_back(it, line);
 					}
 				}
 			}

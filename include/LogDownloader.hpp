@@ -49,7 +49,6 @@ struct LogRequest
 	using TargetIterator = std::vector<Target>::iterator;
 	CallbackType callback;
 	ErrorHandlerType error_handler;
-	//Log::ParserFunc parser;
 	Log::log_parser_func parser;
 	std::string host;
 	std::string port;
@@ -112,13 +111,7 @@ std::string createGempirChannelTarget(
 	const date::year_month_day & date
 );
 
-//bool gempirLogParser(
-//	const std::string_view data,
-//	std::vector<std::string_view> & names,
-//	std::vector<Log::LineView> & lines
-//);
 std::optional<Log::Log> gempir_log_parser(Log::log_identifier && id, std::vector<char> && data_vec);
-
 
 /*
 */
@@ -135,13 +128,6 @@ std::string createOverrustleChannelTarget(
 	const date::year_month_day & date
 );
 
-/*
-*/
-//bool overrustleLogParser(
-//	const std::string_view data,
-//	std::vector<std::string_view> & names,
-//	std::vector<Log::LineView> & lines
-//);
 std::optional<Log::Log> overrustle_log_parser(Log::log_identifier && id, std::vector<char> && data_vec);
 
 #endif // !LogDownloader_HEADER

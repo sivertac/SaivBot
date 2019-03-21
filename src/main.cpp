@@ -90,7 +90,7 @@ int main(int argc, char** argv)
 			std::istreambuf_iterator<char>());
 
 		//log1.emplace(TimeDetail::TimePeriod(std::chrono::system_clock::now(), std::chrono::system_clock::now() + std::chrono::seconds(10)), "name", std::move(data), gempirLogParser);
-		log1.emplace(std::move())
+		log1 = gempir_log_parser(std::move(id), std::move(data));
 	}
 
 	{
@@ -105,6 +105,9 @@ int main(int argc, char** argv)
 		if (log2) {
 			std::cout << std::boolalpha;
 			std::cout << (*log1 == *log2) << "\n";
+		}
+		else {
+			std::cout << "log2 failed\n";
 		}
 	}
 	
