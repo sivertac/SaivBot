@@ -248,7 +248,10 @@ void LogDownloader::run(LogRequest && request)
 
 void LogDownloader::errorHandler(boost::system::error_code ec)
 {
-	m_request.error_handler();
+	boost::asio::post(
+		m_ioc,
+		m_request.error_handler
+	);
 	std::stringstream ss;
 	ss << "LogDownloader error: " << ec.message();
 	throw std::runtime_error(ss.str());
@@ -306,7 +309,7 @@ void LogDownloader::handshakeHandler(boost::system::error_code ec)
 	);
 }
 
-void LogDownloader::writeHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it)
+void LogDownloader::writeHandler(boost::system::error_code ec, std::size_t bytes_transferred, std::vector<Log::log_identifier>::iterator it)
 {
 	if (ec) {
 		errorHandler(ec);
@@ -326,21 +329,34 @@ void LogDownloader::writeHandler(boost::system::error_code ec, std::size_t bytes
 	);
 }
 
-void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it)
+void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_transferred, std::vector<Log::log_identifier>::iterator it)
 {
 	if (ec) {
 		errorHandler(ec);
 	}
 	boost::ignore_unused(bytes_transferred);
 
-	std::lock_guard<std::mutex> lock(m_read_handler_mutex);
-	
 	std::vector<char> temp_data = std::move(m_http_response_parser->get().body());
 	m_http_response_parser.emplace();
 	m_http_response_parser->body_limit(std::numeric_limits<std::uint64_t>::max());
 	
+	auto log = m_request.parser(std::move(*it), std::move(temp_data));
+	if (log) {
+		//m_request.log_handler(std::move(*log));
+		boost::asio::post(
+			m_ioc,
+			[func = m_request.log_handler, l{ std::move(*log) }]() mutable
+			{
+				func(std::move(l));
+			}
+		);
+	}
+	else {
+		errorHandler(ec);
+		return;
+	}
+
 	auto next_it = std::next(it);
-	
 	if (next_it != m_request.targets.cend()) {
 		fillHttpRequest(*next_it);
 		boost::beast::http::async_write(
@@ -364,16 +380,6 @@ void LogDownloader::readHandler(boost::system::error_code ec, std::size_t bytes_
 			)
 		);
 	}
-	
-	//Log::Log log(std::move(std::get<0>(*it)), std::move(std::get<1>(*it)), std::move(temp_data), m_request.parser);
-	
-	auto log = m_request.parser(std::move(std::get<0>(*it)), std::move(temp_data));
-	if (log) {
-		m_request.callback(std::move(*log));
-	}
-	else {
-		m_request.error_handler();
-	}
 }
 
 void LogDownloader::shutdownHandler(boost::system::error_code ec)
@@ -382,12 +388,12 @@ void LogDownloader::shutdownHandler(boost::system::error_code ec)
 	//if (ec) throw std::runtime_error(ec.message());
 }
 
-void LogDownloader::fillHttpRequest(const LogRequest::Target & target)
+void LogDownloader::fillHttpRequest(const Log::log_identifier & target)
 {
 	m_http_request = HttpRequestType();
 	m_http_request.version(m_request.version);
 	m_http_request.method(boost::beast::http::verb::get);
-	m_http_request.target(std::get<1>(target));
+	m_http_request.target(m_request.http_target_func(target));
 	m_http_request.set(boost::beast::http::field::host, m_request.host);
 	m_http_request.set(boost::beast::http::field::user_agent, BOOST_BEAST_VERSION_STRING);
 }

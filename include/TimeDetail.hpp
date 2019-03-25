@@ -17,6 +17,9 @@
 //Date
 #include <date/date.h>
 
+//json
+#include <nlohmann/json.hpp>
+
 //Boost
 #include <boost/functional/hash.hpp>
 
@@ -196,6 +199,23 @@ namespace TimeDetail
 			}
 		};
 
+		friend void to_json(nlohmann::json & j, const TimePeriod & p)
+		{
+			j = nlohmann::json{
+				{"begin", p.m_begin.time_since_epoch().count()},
+				{"end", p.m_end.time_since_epoch().count()}
+			};
+		}
+
+		friend void from_json(const nlohmann::json& j, TimePeriod & p)
+		{
+			TimePoint::rep rep;
+			j.at("begin").get_to(rep);
+			p.m_begin = TimePoint(std::chrono::system_clock::duration(rep));
+			j.at("end").get_to(rep);
+			p.m_end = TimePoint(std::chrono::system_clock::duration(rep));
+		}
+
 	private:
 		TimePoint m_begin;
 		TimePoint m_end;
@@ -239,6 +259,35 @@ namespace TimeDetail
 		TimeDetail::TimePoint end = day + date::days(1);
 		return TimeDetail::TimePeriod(begin, end);
 	}
+
+	inline std::vector<date::year_month> period_to_year_months(const TimePeriod & period)
+	{
+		std::vector<date::year_month> year_months;
+		date::year_month_day ymd = date::floor<date::days>(period.begin());
+		date::year_month begin_ym(ymd.year(), ymd.month());
+		ymd = date::floor<date::days>(period.end());
+		date::year_month end_ym(ymd.year(), ymd.month());
+		end_ym += date::months(1);
+		while (begin_ym < end_ym) {
+			year_months.push_back(begin_ym);
+			begin_ym += date::months(1);
+		}
+		return year_months;
+	}
+
+	inline std::vector<date::year_month_day> period_to_dates(const TimePeriod & period)
+	{
+		std::vector<date::year_month_day> dates;
+		date::year_month_day begin = date::floor<date::days>(period.begin());
+		date::year_month_day end = date::floor<date::days>(period.end());
+		end = date::sys_days{ end } +date::days(1);
+		while (begin < end) {
+			dates.push_back(begin);
+			begin = date::sys_days{ begin } +date::days(1);
+		}
+		return dates;
+	}
+
 };
 
 #endif // !TimeDetail_HEADER

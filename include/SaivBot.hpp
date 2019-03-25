@@ -44,6 +44,7 @@
 #include "LogDownloader.hpp"
 #include "DankHttp.hpp"
 #include "IRCMessageBuffer.hpp"
+#include "log_cache.hpp"
 
 /*
 Command container.
@@ -301,6 +302,7 @@ private:
 		const std::vector<std::string_view> & users
 	)
 	{
+		/*
 		auto generate_year_month_user_list = [&period, &channels, &users, this](auto func) -> std::vector<LogRequest::Target> {
 			auto year_months = periodToYearMonths(period);
 			std::vector<LogRequest::Target> vec;
@@ -347,7 +349,8 @@ private:
 		}
 		else {
 			assert(false);
-		}	
+		}
+		*/
 	}
 
 	struct CountCallbackSharedData
@@ -490,9 +493,10 @@ private:
 	
 	void nuulsServerReply(const std::string & str, const IRCMessage & msg);
 
+	/*
 	std::vector<date::year_month> periodToYearMonths(const TimeDetail::TimePeriod & period);
-	
 	std::vector<date::year_month_day> periodToDates(const TimeDetail::TimePeriod & period);
+	*/
 };
 
 /*

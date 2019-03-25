@@ -40,19 +40,17 @@ enum class LogService
 
 struct LogRequest
 {
-	using CallbackType = std::function<void(Log::Log&&)>;
-	using ErrorHandlerType = std::function<void()>;
-	//tuple<period, channel_name, log_target>
-	//using Target = std::tuple<TimeDetail::TimePeriod, std::string, std::string>;
-	//tuple<id, http target>
-	using Target = std::tuple<Log::log_identifier, std::string>;
-	using TargetIterator = std::vector<Target>::iterator;
-	CallbackType callback;
-	ErrorHandlerType error_handler;
+	//using LogHandler = std::function<void(Log::Log&&)>;
+	//using ErrorHandlerType = std::function<void()>;
+	//using Target = std::tuple<Log::log_identifier, std::string>; //tuple<id, http target>
+	//using TargetIterator = std::vector<Target>::iterator;
+	std::function<void(Log::Log&&)> log_handler;
+	std::function<void()> error_handler;
+	std::function<std::string(Log::log_identifier)> http_target_func;
 	Log::log_parser_func parser;
 	std::string host;
 	std::string port;
-	std::vector<Target> targets;
+	std::vector<Log::log_identifier> targets;
 	int version = 11;
 };
 
@@ -76,13 +74,13 @@ private:
 
 	void handshakeHandler(boost::system::error_code ec);
 
-	void writeHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it);
+	void writeHandler(boost::system::error_code ec, std::size_t bytes_transferred, std::vector<Log::log_identifier>::iterator it);
 
-	void readHandler(boost::system::error_code ec, std::size_t bytes_transferred, LogRequest::TargetIterator it);
+	void readHandler(boost::system::error_code ec, std::size_t bytes_transferred, std::vector<Log::log_identifier>::iterator it);
 
 	void shutdownHandler(boost::system::error_code ec);
 	
-	void fillHttpRequest(const LogRequest::Target & target);
+	void fillHttpRequest(const Log::log_identifier & target);
 
 	boost::asio::io_context & m_ioc;
 	boost::asio::ssl::context m_ctx;
@@ -92,7 +90,6 @@ private:
 	HttpRequestType m_http_request;	
 	std::optional<HttpResponseParserType> m_http_response_parser;
 
-	std::mutex m_read_handler_mutex;
 	LogRequest m_request;
 };
 

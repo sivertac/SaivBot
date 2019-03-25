@@ -12,6 +12,9 @@
 #include <functional>
 #include <cassert>
 
+//Boost
+#include "boost/asio.hpp"
+
 template <class Key, class T, class Hash = std::hash<Key>, class SizeType = std::size_t>
 class lru_cache
 {
@@ -25,34 +28,36 @@ public:
 	using queue_pair = std::pair<key_type, value_type>;
 
 	lru_cache() :
-		m_size(0)
+		m_capacity(0)
 	{
 	}
 
-	lru_cache(size_type size) :
-		m_size(size)
+	lru_cache(size_type capacity) :
+		m_capacity(capacity)
 	{
 	}
 
-	void put(key_type && key, value_type && value)
+	template <typename K, typename V>
+	void put(K && key, V && value)
 	{
-		if (m_size != 0 && m_queue.size() == m_size) {
-			assert(m_queue.size() <= m_size);
+		if (m_capacity != 0 && m_queue.size() == m_capacity) {
+			assert(m_queue.size() <= m_capacity);
 			pop_back();
 		}
 		//if key exist, override data
 		auto it = m_map.find(key);
 		if (it == m_map.end()) {
-			m_queue.emplace_front(key, std::forward<value_type>(value));
-			m_map.emplace(std::forward<key_type>(key), m_queue.begin());
+			m_queue.emplace_front(key, std::forward<V>(value));
+			m_map.emplace(std::forward<K>(key), m_queue.begin());
 		}
 		else {
-			it->second->second = std::forward<value_type>(value);
+			it->second->second = std::forward<V>(value);
 			if (it->second != m_queue.begin()) {
 				move_front(it);
 			}
 		}
 	}
+	
 
 	//Returns iterator from m_queue.
 	//If the iterator is not equal to m_queue.end() then the element is present.
@@ -71,34 +76,42 @@ public:
 		}
 	}
 
-	auto begin() const
+	auto begin() const noexcept
 	{
 		return m_queue.begin();
 	}
 
-	auto end() const
+	auto end() const noexcept
 	{
 		return m_queue.end();
 	}
 
-	const auto & get_queue() const
+	const auto & get_queue() const noexcept
 	{
 		return m_queue;
 	}
 
-	const auto & get_map() const
+	const auto & get_map() const noexcept
 	{
 		return m_map;
 	}
 
-	size_type size() const
+	//get number of elements in cache
+	size_type size() const noexcept
 	{
-		return size;
+		return m_queue.size();
 	}
 
+	//get capacity of cache, if 0 then capacity is infinite
+	size_type capacity() const noexcept
+	{
+		return m_capacity;
+	}
+
+	//set new size, will not add any elements
 	void resize(const size_type size)
 	{
-		if (size != 0 && m_queue.size() > size) {
+		if (size != 0 && this->size() > size) {
 			for (auto queue_it = std::next(m_queue.begin(), size); queue_it != m_queue.end();) {
 				auto map_it = m_map.find(queue_it->first);
 				assert(map_it != m_map.end());
@@ -106,18 +119,29 @@ public:
 				queue_it = m_queue.erase(queue_it);
 			}
 		}
-		m_size = size;
+	}
+
+	//set capacity, will evict elements if they are above the new capacity
+	void reserve(const size_type capacity)
+	{
+		if (capacity < this->size())  {
+			this->resize(capacity);
+			m_capacity = capacity;
+		}
+		else {
+			m_capacity = capacity;
+		}
 	}
 
 	void remove_size_limit()
 	{
-		resize(0);
+		this->reserve(0);
 	}
 
 private:
 	std::list<queue_pair> m_queue;
 	std::unordered_map<key_type, typename std::list<queue_pair>::iterator, hasher> m_map;
-	size_type m_size; // m_size == 0 : no size limit, m_size > 0 : limited to size
+	size_type m_capacity = 0; // if 0 then infinite
 
 	void move_front(typename decltype(m_map)::iterator & it)
 	{

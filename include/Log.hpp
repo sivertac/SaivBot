@@ -19,6 +19,12 @@
 #include <boost/serialization/binary_object.hpp>
 #include <boost/functional/hash.hpp>
 
+//json
+#include <nlohmann/json.hpp>
+
+//date
+#include <date/date.h>
+
 //local
 #include "TimeDetail.hpp"
 
@@ -110,17 +116,18 @@ namespace Log
 	{
 	public:
 		log_identifier() = default;
-
+		/*
 		log_identifier(ChannelName && channel_name, TimeDetail::TimePeriod && period) noexcept :
 			m_channel_name(std::forward<ChannelName>(channel_name)),
 			m_period(std::forward<TimeDetail::TimePeriod>(period))
 		{
 		}
+		*/
 
-		log_identifier(ChannelName && channel_name, TimeDetail::TimePeriod && period, std::string && user_log) noexcept :
-			m_channel_name(std::forward<ChannelName>(channel_name)),
-			m_period(std::forward<TimeDetail::TimePeriod>(period)),
-			m_user_log(std::forward<std::string>(user_log))
+		log_identifier(const ChannelName & channel_name, const TimeDetail::TimePeriod & period, const std::string & user_log = "") noexcept :
+			m_channel_name(channel_name),
+			m_period(period),
+			m_user_log(user_log)
 		{
 		}
 
@@ -149,6 +156,16 @@ namespace Log
 			return !m_user_log.empty();
 		}
 
+		//compute size in bytes
+		std::size_t compute_size_byte() const noexcept
+		{
+			std::size_t size;
+			size += m_channel_name.capacity() * sizeof(decltype(m_channel_name)::value_type);
+			size += sizeof(decltype(m_period));
+			size += m_user_log.capacity() * sizeof(decltype(m_user_log)::value_type);
+			return size;
+		}
+
 		friend bool operator==(const log_identifier & rhs, const log_identifier & lhs) noexcept
 		{
 			return (rhs.m_channel_name == lhs.m_channel_name && rhs.m_period == lhs.m_period && rhs.m_user_log == lhs.m_user_log);
@@ -161,7 +178,7 @@ namespace Log
 
 		struct hash
 		{
-			std::size_t operator()(const log_identifier & id) noexcept
+			std::size_t operator()(const log_identifier & id) const noexcept
 			{
 				std::size_t seed = 0;
 				boost::hash_combine(seed, id.m_channel_name);
@@ -170,11 +187,50 @@ namespace Log
 				return seed;
 			}
 		};
+		
+		friend void to_json(nlohmann::json & j, const log_identifier & id)
+		{
+			j = nlohmann::json{
+				{"channel_name", id.get_channel_name()},
+				{"period", id.get_period()},
+				{"userlog_name", id.get_userlog_name()}
+			};
+		}
+
+		friend void from_json(const nlohmann::json& j, log_identifier & id)
+		{
+			j.at("channel_name").get_to(id.m_channel_name);
+			j.at("period").get_to(id.m_period);
+			j.at("userlog_name").get_to(id.m_user_log);
+		}
+
 	private:
 		ChannelName m_channel_name;
 		TimeDetail::TimePeriod m_period;
 		std::string m_user_log;	//if not empty, then it is a userlog
 	};
+
+	inline std::vector<log_identifier> create_log_ids_userlog(const TimeDetail::TimePeriod & p, const ChannelName & channel_name, const std::string & username)
+	{
+		std::vector<log_identifier> vec;
+		auto year_months = TimeDetail::period_to_year_months(p);
+		vec.reserve(year_months.size());
+		for (auto & ym : year_months) {
+			vec.emplace_back(channel_name, TimeDetail::createYearMonthPeriod(ym), username);
+		}
+		return vec;
+	}
+
+	inline std::vector<log_identifier> create_log_ids_channellog(const TimeDetail::TimePeriod & p, const ChannelName & channel_name)
+	{
+		std::vector<log_identifier> vec;
+		auto dates = TimeDetail::period_to_dates(p);
+		vec.reserve(dates.size());
+		for (auto & d : dates) {
+			vec.emplace_back(channel_name, p);
+		}
+		return vec;
+	}
 
 	class Log;
 	using log_parser_func = std::function<std::optional<typename Log>(log_identifier&&, std::vector<char>&&)>;
@@ -224,6 +280,17 @@ namespace Log
 				}
 			}
 			return true;
+		}
+
+		//compute size in bytes
+		std::size_t compute_size_byte() const noexcept
+		{
+			std::size_t size;
+			size += m_id.compute_size_byte();
+			size += m_data.capacity() * sizeof(decltype(m_data)::value_type);
+			size += m_names.capacity() * sizeof(decltype(m_names)::value_type);
+			size += m_lines.capacity() * sizeof(decltype(m_lines)::value_type);
+			return size;
 		}
 
 		friend bool operator==(const Log & lhs, const Log & rhs) noexcept

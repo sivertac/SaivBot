@@ -1,7 +1,6 @@
 //main.cpp
-//Author: Sivert Andresen Cubedo
 
-#if 0
+#if 1
 //C++
 #include <iostream>
 #include <string>
@@ -63,7 +62,7 @@ int main(int argc, char** argv)
 
 #endif
 
-#if 1
+#if 0
 //C++
 #include <iostream>
 #include <string>
@@ -105,12 +104,16 @@ int main(int argc, char** argv)
 		if (log2) {
 			std::cout << std::boolalpha;
 			std::cout << (*log1 == *log2) << "\n";
+
+			//for (auto & l : log2->getLines()) {
+			//	std::cout << l.getMessageView() << "\n";
+			//}
+
 		}
 		else {
 			std::cout << "log2 failed\n";
 		}
-	}
-	
+	}	
 
 	return 0;
 }
@@ -170,14 +173,25 @@ int main(int argc, char** argv)
 	cache.put(116, 1111);
 	cache.put(117, 11111);
 
+	cache.reserve(0);
 	cache.resize(2);
+
+	for (int i = 0; i < 100; ++i) {
+		cache.put(i, i * i);
+	}
+
+	cache.resize(50);
+
+	cache.reserve(25);
+
+	cache.resize(10);
 
 	for (auto & pair : cache.get_queue()) {
 		std::cout << pair.second << ", ";
 	}
 	std::cout << "\n";
-	std::cout << "map size: " << cache.get_map().size() << "\n";
-
+	std::cout << "cache size: " << cache.size() << "\n";
+	std::cout << "cache capacity: " << cache.capacity() << "\n";
 
 
 	return 0;
@@ -197,11 +211,10 @@ int main(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
-	std::filesystem::path cache_dir(".");
+	log_cache cache;
 
-	log_cache cache(std::move(cache_dir));
-
-	std::cout << sizeof(std::filesystem::path) << "\n";
+	
+	
 
 	return 0;
 }

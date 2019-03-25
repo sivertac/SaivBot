@@ -357,7 +357,7 @@ void SaivBot::consumeMsgBuffer()
 		*/
 		else {
 			if (irc_msg.getCommand() == "PING") {
-				postSendIRC("PONG");
+				postSendIRC("PONG tmi.twitch.tv");
 			}
 			else if (irc_msg.getCommand() == "RECONNECT") {
 				std::cout << "Reconnecting\n";
@@ -669,7 +669,7 @@ void SaivBot::countCommandFunc(const IRCMessage & msg, std::string_view input_li
 			shared_data_ptr->irc_msg = msg;
 			shared_data_ptr->shared_count = 0;
 
-			log_request.callback = std::bind(
+			log_request.log_handler = std::bind(
 				&SaivBot::countCommandCallback,
 				this,
 				std::placeholders::_1,
@@ -833,7 +833,7 @@ void SaivBot::findCommandFunc(const IRCMessage & msg, std::string_view input_lin
 				shared_data_ptr->channels.emplace(channel);
 			}
 
-			log_request.callback = std::bind(
+			log_request.log_handler = std::bind(
 				&SaivBot::findCommandCallback,
 				this,
 				std::placeholders::_1,
@@ -1076,6 +1076,7 @@ void SaivBot::nuulsServerReply(const std::string & str, const IRCMessage & msg)
 	replyToIRCMessage(msg, reply.str());
 }
 
+/*
 std::vector<date::year_month> SaivBot::periodToYearMonths(const TimeDetail::TimePeriod & period)
 {
 	std::vector<date::year_month> year_months;	
@@ -1103,6 +1104,7 @@ std::vector<date::year_month_day> SaivBot::periodToDates(const TimeDetail::TimeP
 	}
 	return dates;
 }
+*/
 
 std::size_t countTargetOccurrences(std::string_view str, const std::regex & regex)
 {
